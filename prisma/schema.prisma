@@ -1,0 +1,262 @@
+// Prisma schema for the Federated Community Need & Volunteer Matching Platform.
+// Multi-tenant via row-level isolation: every tenant-owned row carries ngoId.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Tenancy ──────────────────────────────────────────────────────────
+model NGO {
+  id         String   @id @default(cuid())
+  name       String
+  slug       String   @unique
+  // If true, this NGO's volunteers are visible to the shared network pool.
+  sharesPool Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  users           User[]
+  reportedNeeds   ReportedNeed[]
+  createdIncidents Incident[]        @relation("createdIncidents")
+  incidentUpdates IncidentUpdate[]
+}
+
+// ─── Users (Admin + Volunteer unified; role discriminator) ───────────
+enum UserRole {
+  ADMIN
+  VOLUNTEER
+}
+
+enum VolunteerStatus {
+  AVAILABLE
+  BUSY
+  OFFLINE
+}
+
+model User {
+  id    String   @id @default(cuid())
+  email String   @unique
+  name  String
+  role  UserRole
+  ngoId String
+  ngo   NGO      @relation(fields: [ngoId], references: [id])
+
+  // Volunteer-only fields (nullable for admins).
+  status      VolunteerStatus? @default(AVAILABLE)
+  latitude    Float?
+  longitude   Float?
+  maxRadiusKm Float?           @default(15)
+
+  skills    VolunteerSkill[]
+  matches   Match[]
+  incidentUpdates IncidentUpdate[]
+  createdAt DateTime         @default(now())
+
+  @@index([ngoId, role, status])
+}
+
+// ─── Skills ──────────────────────────────────────────────────────────
+model Skill {
+  id   String @id @default(cuid())
+  name String @unique
+
+  volunteers VolunteerSkill[]
+  needs      NeedSkill[]
+}
+
+model VolunteerSkill {
+  userId  String
+  skillId String
+  // Self-rated proficiency 1–5; used as a tiebreaker.
+  level   Int    @default(3)
+
+  user  User  @relation(fields: [userId], references: [id])
+  skill Skill @relation(fields: [skillId], references: [id])
+
+  @@id([userId, skillId])
+}
+
+// ─── Needs ───────────────────────────────────────────────────────────
+enum NeedCategory {
+  SUPPLY
+  MEDICAL
+  SHELTER
+  FOOD
+  TRANSPORT
+  COUNSELING
+  OTHER
+}
+
+enum Urgency {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum NeedStatus {
+  OPEN
+  MATCHED
+  IN_PROGRESS
+  RESOLVED
+  CANCELLED
+}
+
+model ReportedNeed {
+  id    String @id @default(cuid())
+  ngoId String
+  ngo   NGO    @relation(fields: [ngoId], references: [id])
+
+  rawText  String
+  category NeedCategory
+  urgency  Urgency
+  status   NeedStatus   @default(OPEN)
+
+  locationLabel String?
+  latitude      Float
+  longitude     Float
+
+  // Visibility flag: when true, volunteers from other NGOs can be matched.
+  isShared Boolean @default(false)
+
+  peopleAffected Int? @default(1)
+
+  // Optional link: a need can belong to a longer-running Incident so the
+  // shared knowledge base can show it alongside other field updates.
+  incidentId String?
+  incident   Incident? @relation(fields: [incidentId], references: [id])
+
+  requiredSkills NeedSkill[]
+  matches        Match[]
+  createdAt      DateTime    @default(now())
+
+  @@index([status, urgency, isShared])
+  @@index([ngoId, status])
+  @@index([incidentId])
+}
+
+model NeedSkill {
+  needId  String
+  skillId String
+
+  need  ReportedNeed @relation(fields: [needId], references: [id])
+  skill Skill        @relation(fields: [skillId], references: [id])
+
+  @@id([needId, skillId])
+}
+
+// ─── Matches ─────────────────────────────────────────────────────────
+enum MatchStatus {
+  PROPOSED
+  ACCEPTED
+  DECLINED
+  COMPLETED
+}
+
+model Match {
+  id          String      @id @default(cuid())
+  needId      String
+  volunteerId String
+  score       Float
+  isCrossNgo  Boolean     @default(false)
+  status      MatchStatus @default(PROPOSED)
+  createdAt   DateTime    @default(now())
+
+  need      ReportedNeed @relation(fields: [needId], references: [id])
+  volunteer User         @relation(fields: [volunteerId], references: [id])
+
+  @@unique([needId, volunteerId])
+  @@index([needId, status])
+}
+
+// ─── Incidents (shared, multi-NGO knowledge base) ────────────────────
+// An Incident is a long-running, multi-NGO situation (flood, fire,
+// earthquake). Any NGO can append IncidentUpdates — informational
+// advisories, hazard reports, resource offers — and any other NGO
+// arriving on-scene reads the full timeline before acting.
+
+enum IncidentCategory {
+  FLOOD
+  FIRE
+  EARTHQUAKE
+  STORM
+  OUTBREAK
+  ACCIDENT
+  CONFLICT
+  OTHER
+}
+
+enum IncidentStatus {
+  ACTIVE
+  MONITORING
+  RESOLVED
+  ARCHIVED
+}
+
+enum UpdateKind {
+  INFO        // general advisory or context
+  HAZARD      // road blocked, structure unsafe
+  NEED        // people on site need X
+  RESOURCE    // we have X / staging at Y
+  STATUS      // state change (e.g. water receding)
+  RESOLUTION  // closing the incident
+}
+
+model Incident {
+  id            String           @id @default(cuid())
+  title         String
+  category      IncidentCategory
+  status        IncidentStatus   @default(ACTIVE)
+
+  locationLabel String
+  latitude      Float
+  longitude     Float
+  // Approximate area-of-effect, used to auto-link nearby ReportedNeeds
+  // and to size the marker on the hotspot map.
+  radiusKm      Float            @default(2)
+
+  description   String?
+  startedAt     DateTime         @default(now())
+  resolvedAt    DateTime?
+
+  // First NGO to file the incident; updates can be posted by any NGO.
+  createdByNgoId String
+  createdByNgo   NGO              @relation("createdIncidents", fields: [createdByNgoId], references: [id])
+
+  updates        IncidentUpdate[]
+  needs          ReportedNeed[]
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@index([status, category])
+  @@index([latitude, longitude])
+}
+
+model IncidentUpdate {
+  id         String     @id @default(cuid())
+  incidentId String
+  incident   Incident   @relation(fields: [incidentId], references: [id])
+
+  // Authoring NGO + (optional) user. We keep ngoId required so the
+  // timeline always shows who contributed even when the user is gone.
+  ngoId      String
+  ngo        NGO        @relation(fields: [ngoId], references: [id])
+  authorId   String?
+  author     User?      @relation(fields: [authorId], references: [id])
+
+  kind       UpdateKind
+  body       String
+  // Optional pinpoint location for the update itself (e.g. "this exact
+  // intersection is blocked"), distinct from the incident's centroid.
+  latitude   Float?
+  longitude  Float?
+
+  createdAt  DateTime   @default(now())
+
+  @@index([incidentId, createdAt])
+  @@index([ngoId])
+}

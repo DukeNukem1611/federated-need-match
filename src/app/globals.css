@@ -1,0 +1,95 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  @apply bg-surface text-on-surface antialiased;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Soft radial glow so the dark surface never feels flat. */
+body {
+  background-image:
+    radial-gradient(900px 600px at 85% -10%, rgba(0, 209, 255, 0.08), transparent 60%),
+    radial-gradient(700px 500px at -10% 110%, rgba(76, 214, 255, 0.06), transparent 60%);
+  background-attachment: fixed;
+}
+
+::selection {
+  background: rgba(0, 209, 255, 0.35);
+  color: #e6faff;
+}
+
+@layer components {
+  .glass-panel {
+    background: rgba(28, 43, 60, 0.4);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .glass-card {
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .hero-gradient {
+    background: radial-gradient(
+      circle at 50% 40%,
+      rgba(0, 209, 255, 0.18) 0%,
+      transparent 65%
+    );
+  }
+
+  .text-glow {
+    text-shadow: 0 0 24px rgba(0, 209, 255, 0.45);
+  }
+
+  .label-caps {
+    @apply text-[12px] font-semibold uppercase tracking-[0.1em] text-on-surface-variant;
+    font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  }
+
+  .mono-data {
+    @apply text-[14px] font-medium;
+    font-family: "Space Grotesk", ui-monospace, monospace;
+  }
+
+  .heading {
+    font-family: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-md bg-primary-container
+      px-5 py-2.5 text-sm font-semibold uppercase tracking-[0.08em] text-on-primary
+      transition-all hover:shadow-glow-cyan-strong active:scale-[0.98]
+      disabled:opacity-50 disabled:pointer-events-none;
+    font-family: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-md border
+      border-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em]
+      text-on-surface-variant transition-all hover:text-primary hover:bg-white/5
+      active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none;
+    font-family: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  }
+
+  .input-field {
+    @apply w-full rounded-md border border-white/10 bg-surface-container-low
+      px-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant/60
+      transition-colors focus:border-primary-container focus:outline-none
+      focus:ring-0 focus:shadow-glow-cyan;
+  }
+
+  .divider-soft {
+    @apply border-white/5;
+  }
+}
