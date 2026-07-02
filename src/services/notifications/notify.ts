@@ -3,6 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { incidentCategoryLabel } from "@/lib/format";
 import { sendPushToUsers } from "@/lib/push";
+import { sendEmailToUsers } from "@/lib/email";
 import type { IncidentCategory } from "@prisma/client";
 
 // Notify volunteers who landed in a need's recommendation list, so they know
@@ -41,15 +42,17 @@ export async function notifyVolunteersOfRecommendation(
     })),
   });
 
-  // Also deliver a browser push (best-effort — never block the in-app feed).
+  // Also deliver browser push + email (best-effort — never block the feed).
+  const url = need.incidentId ? `/incidents/${need.incidentId}` : "/";
   try {
-    await sendPushToUsers(recipients.map(r => r.id), {
-      title,
-      body,
-      url: need.incidentId ? `/incidents/${need.incidentId}` : "/",
-    });
+    await sendPushToUsers(recipients.map(r => r.id), { title, body, url });
   } catch (err) {
     console.error("[push] recommendation push failed:", err);
+  }
+  try {
+    await sendEmailToUsers(recipients.map(r => r.id), { subject: title, body, url });
+  } catch (err) {
+    console.error("[email] recommendation email failed:", err);
   }
 
   return recipients.length;
@@ -87,14 +90,16 @@ export async function notifyNgoOfMatchResponse(
     })),
   });
 
+  const url = need.incidentId ? `/incidents/${need.incidentId}` : "/";
   try {
-    await sendPushToUsers(admins.map(a => a.id), {
-      title,
-      body,
-      url: need.incidentId ? `/incidents/${need.incidentId}` : "/",
-    });
+    await sendPushToUsers(admins.map(a => a.id), { title, body, url });
   } catch (err) {
     console.error("[push] match-response push failed:", err);
+  }
+  try {
+    await sendEmailToUsers(admins.map(a => a.id), { subject: title, body, url });
+  } catch (err) {
+    console.error("[email] match-response email failed:", err);
   }
 
   return admins.length;
@@ -127,7 +132,7 @@ export async function notifyAllUsersOfIncident(incident: {
     })),
   });
 
-  // Browser push for the same event (best-effort).
+  // Browser push + email for the same event (best-effort).
   try {
     await sendPushToUsers(users.map(u => u.id), {
       title,
@@ -136,6 +141,15 @@ export async function notifyAllUsersOfIncident(incident: {
     });
   } catch (err) {
     console.error("[push] incident push failed:", err);
+  }
+  try {
+    await sendEmailToUsers(users.map(u => u.id), {
+      subject: title,
+      body: messageBody,
+      url: `/incidents/${incident.id}`,
+    });
+  } catch (err) {
+    console.error("[email] incident email failed:", err);
   }
 
   return users.length;
