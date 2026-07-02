@@ -70,7 +70,10 @@ export async function PATCH(
       });
       if (otherAccepted === 0 && match.need.status !== "RESOLVED" && match.need.status !== "CANCELLED") {
         ops.push(
-          prisma.reportedNeed.update({ where: { id: match.needId }, data: { status: "OPEN" } }),
+          prisma.reportedNeed.update({
+            where: { id: match.needId },
+            data: { status: "OPEN", resolvedAt: null },
+          }),
         );
       }
       ops.push(
@@ -85,7 +88,10 @@ export async function PATCH(
     } else {
       // complete
       ops.push(
-        prisma.reportedNeed.update({ where: { id: match.needId }, data: { status: "RESOLVED" } }),
+        prisma.reportedNeed.update({
+          where: { id: match.needId },
+          data: { status: "RESOLVED", resolvedAt: new Date() },
+        }),
         prisma.user.update({
           where: { id: match.volunteerId },
           data: { status: "AVAILABLE", activeNeed: { disconnect: true } },

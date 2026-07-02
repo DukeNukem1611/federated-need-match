@@ -49,10 +49,16 @@ export default async function NetworkPage({
   since.setHours(0, 0, 0, 0);
   since.setDate(since.getDate() - (DAYS - 1));
 
-  const [recentNeeds, recentMatches, firstMatches, matchGroups, catGroups, ngoGroups, ngoNames] =
+  const [recentNeeds, recentMatches, recentResolved, resolvedPairs, firstMatches, matchGroups, catGroups, ngoGroups, ngoNames] =
     await Promise.all([
       prisma.reportedNeed.findMany({ where: { createdAt: { gte: since } }, select: { createdAt: true } }),
       prisma.match.findMany({ where: { createdAt: { gte: since } }, select: { createdAt: true } }),
+      prisma.reportedNeed.findMany({ where: { resolvedAt: { gte: since } }, select: { resolvedAt: true } }),
+      // All resolved needs (any age) → time-to-resolution.
+      prisma.reportedNeed.findMany({
+        where: { resolvedAt: { not: null } },
+        select: { createdAt: true, resolvedAt: true },
+      }),
       // First match per need → time-to-match.
       prisma.match.findMany({
         orderBy: { createdAt: "asc" },
@@ -78,22 +84,27 @@ export default async function NetworkPage({
       label: d.toLocaleDateString("en-IN", { day: "numeric", month: "short" }),
       filed: 0,
       matched: 0,
+      resolved: 0,
     };
   }).map(({ key, ...rest }) => {
     return {
       ...rest,
       filed: recentNeeds.filter(n => dayKey(n.createdAt) === key).length,
       matched: recentMatches.filter(m => dayKey(m.createdAt) === key).length,
+      resolved: recentResolved.filter(n => n.resolvedAt && dayKey(n.resolvedAt) === key).length,
     };
   });
 
-  const ttmHours = firstMatches
-    .map(m => (m.createdAt.getTime() - m.need.createdAt.getTime()) / 3_600_000)
-    .filter(h => h >= 0)
-    .sort((a, b) => a - b);
-  const medianHours = ttmHours.length
-    ? ttmHours[Math.floor(ttmHours.length / 2)]
-    : null;
+  const median = (hours: number[]) => {
+    const sorted = hours.filter(h => h >= 0).sort((a, b) => a - b);
+    return sorted.length ? sorted[Math.floor(sorted.length / 2)] : null;
+  };
+  const medianHours = median(
+    firstMatches.map(m => (m.createdAt.getTime() - m.need.createdAt.getTime()) / 3_600_000),
+  );
+  const medianResolutionHours = median(
+    resolvedPairs.map(n => (n.resolvedAt!.getTime() - n.createdAt.getTime()) / 3_600_000),
+  );
 
   const matchCount = (s: string) => matchGroups.find(g => g.status === s)?._count._all ?? 0;
   const acceptedCount = matchCount("ACCEPTED") + matchCount("COMPLETED");
@@ -213,6 +224,7 @@ export default async function NetworkPage({
           <AnalyticsPanel
             days={days}
             medianHours={medianHours}
+            medianResolutionHours={medianResolutionHours}
             acceptedCount={acceptedCount}
             declinedCount={declinedCount}
             byNgo={byNgoBars}

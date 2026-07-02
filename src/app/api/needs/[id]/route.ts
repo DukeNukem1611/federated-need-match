@@ -37,9 +37,13 @@ export async function PATCH(
     if ("error" in auth) return auth.error;
 
     const body = await req.json();
-    const data: { isShared?: boolean; status?: NeedStatus } = {};
+    const data: { isShared?: boolean; status?: NeedStatus; resolvedAt?: Date | null } = {};
     if (typeof body.isShared === "boolean") data.isShared = body.isShared;
-    if (typeof body.status === "string")    data.status   = body.status as NeedStatus;
+    if (typeof body.status === "string") {
+      data.status = body.status as NeedStatus;
+      // Track when the need was closed out; clear the stamp if it reopens.
+      data.resolvedAt = data.status === "RESOLVED" ? new Date() : null;
+    }
 
     const need = await prisma.reportedNeed.update({
       where: { id: params.id },

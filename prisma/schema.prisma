@@ -204,6 +204,10 @@ model ReportedNeed {
   // often says more than the report text. Caption lives in rawText.
   photoData String?
 
+  // When the need was closed out (status → RESOLVED). Cleared if reopened.
+  // Powers the resolution trend + time-to-resolution analytics.
+  resolvedAt DateTime?
+
   requiredSkills NeedSkill[]
   matches        Match[]
   // Volunteers self-reporting that they are fulfilling this need.

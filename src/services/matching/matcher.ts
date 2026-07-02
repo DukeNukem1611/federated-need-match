@@ -9,6 +9,7 @@ import { ReportedNeed, User, VolunteerStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { haversineKm } from "@/services/geo/distance";
 import { notifyVolunteersOfRecommendation } from "@/services/notifications/notify";
+import { sendPushToUsers } from "@/lib/push";
 
 const WEIGHTS = {
   skill:        50,  // wrong skill = wrong person
@@ -189,8 +190,10 @@ export async function matchAndPersist(needId: string, k: number = 5) {
     return { match, details: best, recommendations: ranked };
   });
 
-  // Best-effort: ping the recommended (non-BUSY) volunteers. A notification
-  // failure must never fail the match itself.
+  // Best-effort: ping the recommended (non-BUSY) volunteers, and send the
+  // top pick a targeted push with Accept/Decline action buttons they can tap
+  // straight from the notification shade. A notification failure must never
+  // fail the match itself.
   try {
     const need = await prisma.reportedNeed.findUnique({
       where: { id: needId },
@@ -201,6 +204,17 @@ export async function matchAndPersist(needId: string, k: number = 5) {
         { id: need.id, rawText: need.rawText, ngoName: need.ngo.name, incidentId: need.incidentId },
         ranked.map(r => r.volunteer.id),
       );
+      const snippet = need.rawText.length > 80 ? need.rawText.slice(0, 80) + "…" : need.rawText;
+      await sendPushToUsers([best.volunteer.id], {
+        title: `Assignment for you — ${need.ngo.name}`,
+        body: `"${snippet}" — accept or decline right here.`,
+        url: "/me",
+        matchId: result.match.id,
+        actions: [
+          { action: "accept", title: "✔ Accept" },
+          { action: "decline", title: "✕ Decline" },
+        ],
+      });
     }
   } catch (notifyErr) {
     console.error("[match] recommendation notify failed:", notifyErr);

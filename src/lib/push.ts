@@ -17,7 +17,16 @@ function ensureConfigured(): boolean {
   return true;
 }
 
-export type PushPayload = { title: string; body: string; url?: string };
+export type PushPayload = {
+  title: string;
+  body: string;
+  url?: string;
+  // Optional action buttons rendered on the OS notification (Android/desktop
+  // Chrome; iOS ignores them). `matchId` lets the service worker call the
+  // assignment API directly from the notification shade.
+  actions?: { action: string; title: string }[];
+  matchId?: string;
+};
 
 // Push to all subscriptions of the given users. Returns the number delivered.
 export async function sendPushToUsers(

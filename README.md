@@ -24,9 +24,12 @@ evidence, offline report queueing, and a live analytics pulse.
 
 | Role | Signs in at | Can |
 | --- | --- | --- |
-| **Volunteer** | `/login` (Volunteer tab) | file incidents & reports as their NGO, toggle availability, **accept / decline / complete assignments**, upload a profile picture, get push notifications |
-| **NGO admin** | `/login` (NGO tab) | everything a volunteer can, plus add/remove volunteers, set & **reset** their passwords, remove fulfilled needs, set the NGO's profile picture |
-| **Super-admin** | `/admin/login` (platform password) | add/remove NGOs (with generated admin credentials), remove incidents |
+| **Volunteer** | `/login` (Volunteer tab) | file incidents & reports as their NGO, toggle availability, **accept / decline / complete assignments** (even straight from the push notification's buttons), update their GPS location one-tap, see their completed-assignment track record, upload a profile picture |
+| **NGO admin** | `/login` (NGO tab) | everything a volunteer can, plus add/remove volunteers, set & **reset** their passwords, remove fulfilled needs, export their needs as CSV, set the NGO's profile picture |
+| **Super-admin** | `/admin/login` (platform password) | add/remove NGOs (with generated admin credentials), remove incidents, **reset the demo data** |
+
+Logins offer **"Keep me signed in for 30 days"** (default) so the installed
+app doesn't bounce phone users to the login screen every day.
 
 Every page and API is behind login (middleware + per-route guards). Server
 routes derive the acting NGO/user from the session — request bodies can't
@@ -80,9 +83,18 @@ The seed creates NGOs with deliberately complementary skills
 - **PWA** — install from the browser (or the 📲 button); offline fallback page;
   **reports written offline are queued in IndexedDB and auto-sent on reconnect**.
 - **Push** — new-incident broadcasts, match recommendations (skips BUSY
-  volunteers), assignment responses; prunes dead subscriptions.
+  volunteers), assignment responses; the assigned volunteer's notification
+  carries **Accept / Decline buttons** handled by the service worker; dead
+  subscriptions are pruned. Email mirrors every push (Gmail SMTP, gated by
+  `EMAIL_NOTIFICATIONS_ENABLED`).
 - **Boards** — status/category/urgency filters, text search, and pagination on
-  the incident board and the federated network board.
+  the incident board and the federated network board; status filters + one-click
+  **CSV export** on each NGO dashboard.
+- **Analytics** — filed / matched / **resolved** 14-day trend (needs carry a
+  `resolvedAt` stamp), median time-to-match, median time-to-resolution, and
+  assignment acceptance rate.
+- **Demo reset** — a super-admin Danger-Zone button that wipes everything and
+  restores the canonical 3-NGO seed (same code path as `npm run db:seed`).
 
 ## API surface (all auth-guarded)
 
@@ -99,6 +111,9 @@ The seed creates NGOs with deliberately complementary skills
 | GET/POST | `/api/incidents` · `/api/incidents/:id/updates` | board + timelines (identity from session) |
 | PATCH/DELETE | `/api/incidents/:id` | status change; removal (super-admin) |
 | GET | `/api/needs/:id/photo` · `/api/updates/:id/photo` | cached photo bytes |
+| GET | `/api/ngos/:id/export` | needs as CSV (NGO members) |
+| GET | `/me` | session-aware redirect to your own workspace (push/email links) |
+| POST | `/api/admin/reset-demo` | wipe + reseed demo data (super-admin) |
 | POST | `/api/push/subscribe` / `unsubscribe` | Web Push subscriptions |
 | GET/POST | `/api/notifications` (+`/read`) | in-app notification feed |
 
@@ -145,5 +160,5 @@ scripts/gen-icons.mjs     regenerates PWA icons from the SVG sources
 - Login rate limiting / lockout.
 - Move photo bytes to blob storage (Vercel Blob/S3) — the serving endpoints
   already isolate storage, so it's a drop-in swap.
-- Email notifications as a push fallback.
+- Test suite + CI (GitHub Actions).
 - PostGIS `geography(Point)` + `ST_DWithin` once geo queries matter at scale.

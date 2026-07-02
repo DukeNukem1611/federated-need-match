@@ -16,6 +16,7 @@ export function LoginForm() {
   const [mode, setMode] = useState<Mode>("VOLUNTEER");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(true);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -26,7 +27,7 @@ export function LoginForm() {
     const res = await fetch("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password, expectedRole: mode }),
+      body: JSON.stringify({ email, password, expectedRole: mode, rememberMe }),
     });
     const data = await res.json().catch(() => ({}));
     setPending(false);
@@ -98,6 +99,16 @@ export function LoginForm() {
           placeholder="••••••••"
           className="input-field"
         />
+      </label>
+
+      <label className="mt-4 flex cursor-pointer items-center gap-2 text-xs text-on-surface-variant">
+        <input
+          type="checkbox"
+          checked={rememberMe}
+          onChange={e => setRememberMe(e.target.checked)}
+          className="h-4 w-4 rounded border-black/20 bg-surface-container-low text-primary-container focus:ring-primary-container"
+        />
+        Keep me signed in for 30 days
       </label>
 
       {error && (

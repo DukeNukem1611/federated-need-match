@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { AddNgoForm } from "./AddNgoForm";
 import { LogoutButton } from "./LogoutButton";
 import { RemoveNgoButton } from "./RemoveNgoButton";
+import { DemoResetButton } from "./DemoResetButton";
 import { CountUp } from "@/components/CountUp";
 import { LiveEyebrow, ScanLine, HoverShine } from "@/components/section";
 
@@ -69,7 +70,10 @@ export default async function AdminPage() {
         </div>
 
         <div className="grid gap-gutter lg:grid-cols-2">
-          <AddNgoForm />
+          <div className="space-y-gutter">
+            <AddNgoForm />
+            <DemoResetButton />
+          </div>
 
           <div className="glass-panel rounded-xl p-6">
             <div className="mb-5 flex items-center justify-between">

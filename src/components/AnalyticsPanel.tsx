@@ -4,17 +4,20 @@
 // magnitude rankings (identity is carried by labels, not colors).
 //
 // Palette (validated for CVD + contrast on the light surface):
-//   #0891b2 teal  = Matched (response, brand accent)
-//   #d97706 amber = Filed   (demand)
+//   #0891b2 teal   = Matched  (response, brand accent)
+//   #d97706 amber  = Filed    (demand)
+//   #7c3aed violet = Resolved (outcome)
 
 const TEAL = "#0891b2";
 const AMBER = "#d97706";
+const VIOLET = "#7c3aed";
 
-export type DayPoint = { label: string; filed: number; matched: number };
+export type DayPoint = { label: string; filed: number; matched: number; resolved: number };
 
 export function AnalyticsPanel({
   days,
   medianHours,
+  medianResolutionHours,
   acceptedCount,
   declinedCount,
   byNgo,
@@ -22,6 +25,7 @@ export function AnalyticsPanel({
 }: {
   days: DayPoint[];
   medianHours: number | null;
+  medianResolutionHours: number | null;
   acceptedCount: number;
   declinedCount: number;
   byNgo: { name: string; count: number }[];
@@ -38,10 +42,10 @@ export function AnalyticsPanel({
           <div>
             <p className="label-caps text-surface-tint">Last 14 days</p>
             <h3 className="heading mt-1 text-lg font-semibold text-on-surface">
-              Needs filed vs matched
+              Needs filed · matched · resolved
             </h3>
           </div>
-          {/* Legend — two series, always present */}
+          {/* Legend — always present for multiple series */}
           <div className="flex items-center gap-4 text-[11px] text-on-surface-variant">
             <span className="flex items-center gap-1.5">
               <span className="h-2 w-2 rounded-full" style={{ background: AMBER }} />
@@ -50,6 +54,10 @@ export function AnalyticsPanel({
             <span className="flex items-center gap-1.5">
               <span className="h-2 w-2 rounded-full" style={{ background: TEAL }} />
               Matched
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-full" style={{ background: VIOLET }} />
+              Resolved
             </span>
           </div>
         </div>
@@ -60,7 +68,7 @@ export function AnalyticsPanel({
       <div className="flex flex-col gap-gutter">
         <div className="glass-panel flex-1 rounded-xl p-6">
           <p className="label-caps text-surface-tint">Median time to match</p>
-          <p className="heading mt-2 text-4xl font-semibold text-on-surface">
+          <p className="heading mt-2 text-3xl font-semibold text-on-surface">
             {medianHours == null ? "—" : formatHours(medianHours)}
           </p>
           <p className="mt-1 text-[11px] text-on-surface-variant">
@@ -68,8 +76,17 @@ export function AnalyticsPanel({
           </p>
         </div>
         <div className="glass-panel flex-1 rounded-xl p-6">
+          <p className="label-caps text-surface-tint">Median time to resolution</p>
+          <p className="heading mt-2 text-3xl font-semibold text-on-surface">
+            {medianResolutionHours == null ? "—" : formatHours(medianResolutionHours)}
+          </p>
+          <p className="mt-1 text-[11px] text-on-surface-variant">
+            from filed to closed out
+          </p>
+        </div>
+        <div className="glass-panel flex-1 rounded-xl p-6">
           <p className="label-caps text-surface-tint">Assignment acceptance</p>
-          <p className="heading mt-2 text-4xl font-semibold text-on-surface">
+          <p className="heading mt-2 text-3xl font-semibold text-on-surface">
             {acceptRate == null ? "—" : `${acceptRate}%`}
           </p>
           <p className="mt-1 text-[11px] text-on-surface-variant">
@@ -105,18 +122,19 @@ const PAD = { top: 14, right: 14, bottom: 22, left: 30 };
 function TrendChart({ days }: { days: DayPoint[] }) {
   const innerW = W - PAD.left - PAD.right;
   const innerH = H - PAD.top - PAD.bottom;
-  const rawMax = Math.max(1, ...days.map(d => Math.max(d.filed, d.matched)));
+  const rawMax = Math.max(1, ...days.map(d => Math.max(d.filed, d.matched, d.resolved)));
   const yMax = niceCeil(rawMax);
 
   const x = (i: number) => PAD.left + (days.length > 1 ? (i / (days.length - 1)) * innerW : innerW / 2);
   const y = (v: number) => PAD.top + innerH - (v / yMax) * innerH;
-  const pts = (key: "filed" | "matched") => days.map((d, i) => `${x(i)},${y(d[key])}`).join(" ");
+  const pts = (key: "filed" | "matched" | "resolved") =>
+    days.map((d, i) => `${x(i)},${y(d[key])}`).join(" ");
 
   const gridVals = [0, Math.round(yMax / 2), yMax];
   const last = days[days.length - 1];
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="mt-4 w-full" role="img" aria-label="Needs filed and matched per day, last 14 days">
+    <svg viewBox={`0 0 ${W} ${H}`} className="mt-4 w-full" role="img" aria-label="Needs filed, matched, and resolved per day, last 14 days">
       {/* recessive hairline grid + clean ticks */}
       {gridVals.map(v => (
         <g key={v}>
@@ -134,10 +152,12 @@ function TrendChart({ days }: { days: DayPoint[] }) {
       {/* 2px round-joined lines */}
       <polyline points={pts("filed")} fill="none" stroke={AMBER} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
       <polyline points={pts("matched")} fill="none" stroke={TEAL} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+      <polyline points={pts("resolved")} fill="none" stroke={VIOLET} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
 
       {/* end markers: ≥8px with a 2px surface ring */}
       <circle cx={x(days.length - 1)} cy={y(last.filed)} r="4" fill={AMBER} stroke="#f5f8fc" strokeWidth="2" />
       <circle cx={x(days.length - 1)} cy={y(last.matched)} r="4" fill={TEAL} stroke="#f5f8fc" strokeWidth="2" />
+      <circle cx={x(days.length - 1)} cy={y(last.resolved)} r="4" fill={VIOLET} stroke="#f5f8fc" strokeWidth="2" />
 
       {/* native hover tooltips on generous hit targets */}
       {days.map((d, i) => (
@@ -149,7 +169,7 @@ function TrendChart({ days }: { days: DayPoint[] }) {
             height={innerH}
             fill="transparent"
           >
-            <title>{`${d.label} — filed ${d.filed} · matched ${d.matched}`}</title>
+            <title>{`${d.label} — filed ${d.filed} · matched ${d.matched} · resolved ${d.resolved}`}</title>
           </rect>
         </g>
       ))}

@@ -11,6 +11,7 @@ import { VolunteerStatusPanel } from "@/components/VolunteerStatusPanel";
 import { AuthMenu } from "@/components/AuthMenu";
 import { AvatarUpload } from "@/components/AvatarUpload";
 import { AssignmentsPanel, type Assignment } from "@/components/AssignmentsPanel";
+import { LocationUpdater } from "@/components/LocationUpdater";
 import { LiveEyebrow, ScanLine } from "@/components/section";
 
 export const dynamic = "force-dynamic";
@@ -36,21 +37,35 @@ export default async function UserPage({ params }: { params: { userId: string } 
 
   const isVolunteer = user.role === "VOLUNTEER";
 
-  // Open assignments: matches proposed to (or accepted by) this volunteer.
-  const matchRows = isVolunteer
-    ? await prisma.match.findMany({
-        where: { volunteerId: user.id, status: { in: ["PROPOSED", "ACCEPTED"] } },
-        orderBy: { createdAt: "desc" },
-        include: {
-          need: {
-            select: {
-              id: true, rawText: true, urgency: true, locationLabel: true,
-              incidentId: true, status: true, ngo: { select: { name: true } },
+  // Open assignments (proposed/accepted) + completed history for this volunteer.
+  const [matchRows, completedRows] = isVolunteer
+    ? await Promise.all([
+        prisma.match.findMany({
+          where: { volunteerId: user.id, status: { in: ["PROPOSED", "ACCEPTED"] } },
+          orderBy: { createdAt: "desc" },
+          include: {
+            need: {
+              select: {
+                id: true, rawText: true, urgency: true, locationLabel: true,
+                incidentId: true, status: true, ngo: { select: { name: true } },
+              },
             },
           },
-        },
-      })
-    : [];
+        }),
+        prisma.match.findMany({
+          where: { volunteerId: user.id, status: "COMPLETED" },
+          orderBy: { createdAt: "desc" },
+          include: {
+            need: {
+              select: {
+                rawText: true, locationLabel: true, resolvedAt: true,
+                ngo: { select: { name: true } },
+              },
+            },
+          },
+        }),
+      ])
+    : [[], []];
   const assignments: Assignment[] = matchRows
     // A resolved/cancelled need no longer needs a response.
     .filter(m => m.need.status !== "RESOLVED" && m.need.status !== "CANCELLED")
@@ -152,6 +167,9 @@ export default async function UserPage({ params }: { params: { userId: string } 
             <p className="mono-data mt-2 text-xs uppercase tracking-widest text-on-surface-variant">
               {user.role} · {user.ngo.name}
               {user.status ? ` · ${user.status}` : ""}
+              {completedRows.length > 0 && (
+                <span className="text-amber-600"> · ★ {completedRows.length} completed</span>
+              )}
             </p>
             {(user.activeIncident || user.activeNeed) && (
               <p className="mt-2 text-xs text-on-surface-variant">
@@ -168,6 +186,15 @@ export default async function UserPage({ params }: { params: { userId: string } 
                   </span>
                 )}
               </p>
+            )}
+            {isVolunteer && (
+              <div className="mt-3">
+                <LocationUpdater
+                  userId={user.id}
+                  latitude={user.latitude}
+                  longitude={user.longitude}
+                />
+              </div>
             )}
             {user.skills.length > 0 && (
               <div className="mt-3 flex flex-wrap gap-1.5">
@@ -208,6 +235,47 @@ export default async function UserPage({ params }: { params: { userId: string } 
         )}
 
         <NotificationFeed userId={user.id} />
+
+        {completedRows.length > 0 && (
+          <div className="mt-gutter glass-panel rounded-xl p-6">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <p className="label-caps text-surface-tint">Track Record</p>
+                <h3 className="heading mt-1 text-xl font-semibold text-on-surface">
+                  Completed Assignments
+                </h3>
+              </div>
+              <span className="mono-data rounded-md border border-amber-400/30 bg-amber-400/10 px-3 py-1 text-amber-700">
+                ★ {completedRows.length}
+              </span>
+            </div>
+            <ul className="space-y-2">
+              {completedRows.slice(0, 8).map(m => (
+                <li
+                  key={m.id}
+                  className="flex items-start gap-3 rounded-md border border-black/5 bg-surface-container/50 p-3"
+                >
+                  <span className="mt-0.5 text-amber-500">★</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm text-on-surface">{m.need.rawText}</p>
+                    <p className="mt-0.5 text-[11px] text-on-surface-variant">
+                      for {m.need.ngo.name}
+                      {m.need.locationLabel ? ` · ◎ ${m.need.locationLabel}` : ""}
+                      {m.need.resolvedAt
+                        ? ` · resolved ${m.need.resolvedAt.toLocaleDateString("en-IN", { day: "numeric", month: "short" })}`
+                        : ""}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+            {completedRows.length > 8 && (
+              <p className="mt-3 text-center text-[11px] text-on-surface-variant">
+                +{completedRows.length - 8} earlier assignments
+              </p>
+            )}
+          </div>
+        )}
       </section>
     </main>
   );

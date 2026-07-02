@@ -4,7 +4,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyPassword } from "@/lib/auth";
-import { signSession, SESSION_COOKIE, MAX_AGE } from "@/lib/session";
+import { signSession, SESSION_COOKIE, MAX_AGE, REMEMBER_MAX_AGE } from "@/lib/session";
 
 export async function POST(req: Request) {
   if (!process.env.AUTH_SESSION_SECRET) {
@@ -48,7 +48,9 @@ export async function POST(req: Request) {
     );
   }
 
-  const token = await signSession({ uid: user.id, role: user.role, ngoId: user.ngoId });
+  // "Keep me signed in" extends both the JWT expiry and the cookie lifetime.
+  const maxAge = body?.rememberMe === true ? REMEMBER_MAX_AGE : MAX_AGE;
+  const token = await signSession({ uid: user.id, role: user.role, ngoId: user.ngoId }, maxAge);
 
   const res = NextResponse.json({
     ok: true,
@@ -62,7 +64,7 @@ export async function POST(req: Request) {
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     path: "/",
-    maxAge: MAX_AGE,
+    maxAge,
   });
   return res;
 }

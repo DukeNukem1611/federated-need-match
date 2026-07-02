@@ -43,7 +43,8 @@ export async function notifyVolunteersOfRecommendation(
   });
 
   // Also deliver browser push + email (best-effort — never block the feed).
-  const url = need.incidentId ? `/incidents/${need.incidentId}` : "/";
+  // /me lands every recipient in their own workspace.
+  const url = need.incidentId ? `/incidents/${need.incidentId}` : "/me";
   try {
     await sendPushToUsers(recipients.map(r => r.id), { title, body, url });
   } catch (err) {
@@ -90,7 +91,8 @@ export async function notifyNgoOfMatchResponse(
     })),
   });
 
-  const url = need.incidentId ? `/incidents/${need.incidentId}` : "/";
+  // Land the admins on their own dashboard, where the need's row lives.
+  const url = need.incidentId ? `/incidents/${need.incidentId}` : `/dashboard/${need.ngoId}`;
   try {
     await sendPushToUsers(admins.map(a => a.id), { title, body, url });
   } catch (err) {

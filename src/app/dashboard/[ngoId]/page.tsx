@@ -20,10 +20,15 @@ import { withPhotoFlag } from "@/lib/photos";
 
 export const dynamic = "force-dynamic";
 
+const NEED_STATUSES = ["OPEN", "MATCHED", "IN_PROGRESS", "RESOLVED", "CANCELLED"] as const;
+type NeedStatusFilter = (typeof NEED_STATUSES)[number];
+
 export default async function NgoDashboard({
   params,
+  searchParams,
 }: {
   params: { ngoId: string };
+  searchParams: { status?: string };
 }) {
   // Anyone signed in (or the super-admin) can *view* any NGO's console — the
   // federation is meant to be transparent. But mutating controls (ingest,
@@ -55,6 +60,7 @@ export default async function NgoDashboard({
         skills: { include: { skill: true } },
         activeIncident: { select: { id: true, title: true } },
         activeNeed: { select: { id: true, rawText: true } },
+        _count: { select: { matches: { where: { status: "COMPLETED" } } } },
       },
       orderBy: { name: "asc" },
     }),
@@ -69,6 +75,15 @@ export default async function NgoDashboard({
 
   // Photo bytes stay server-side; rows carry a hasPhoto flag instead.
   const needs = needRows.map(withPhotoFlag);
+
+  // Needs-list status filter (?status=OPEN …). KPIs always show full totals.
+  const statusFilter = NEED_STATUSES.includes(searchParams.status as NeedStatusFilter)
+    ? (searchParams.status as NeedStatusFilter)
+    : undefined;
+  const visibleNeeds = statusFilter ? needs.filter(n => n.status === statusFilter) : needs;
+  const statusCounts = Object.fromEntries(
+    NEED_STATUSES.map(s => [s, needs.filter(n => n.status === s).length]),
+  ) as Record<NeedStatusFilter, number>;
 
   // The signed-in user (for the bell + account menu); null for the super-admin.
   const me = session
@@ -210,18 +225,53 @@ export default async function NgoDashboard({
                   </h2>
                   <ScanLine className="mt-2 w-20" />
                 </div>
-                <span className="mono-data rounded-md border border-black/10 bg-surface-container/60 px-3 py-1 text-primary-container">
-                  {needs.length} total
-                </span>
+                <div className="flex items-center gap-2">
+                  <a
+                    href={`/api/ngos/${ngo.id}/export`}
+                    className="btn-ghost !px-3 !py-1.5 !text-[11px]"
+                    title="Download this NGO's needs as a CSV"
+                  >
+                    ⤓ CSV
+                  </a>
+                  <span className="mono-data rounded-md border border-black/10 bg-surface-container/60 px-3 py-1 text-primary-container">
+                    {statusFilter ? `${visibleNeeds.length} of ${needs.length}` : `${needs.length} total`}
+                  </span>
+                </div>
               </div>
 
-              {needs.length === 0 ? (
+              <div className="mb-4 flex flex-wrap items-center gap-1.5">
+                <Link
+                  href={`/dashboard/${ngo.id}`}
+                  className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] transition-colors ${
+                    !statusFilter
+                      ? "border-primary-container/50 bg-primary-container/10 text-primary"
+                      : "border-black/10 bg-surface-container/50 text-on-surface-variant hover:text-primary"
+                  }`}
+                >
+                  All
+                </Link>
+                {NEED_STATUSES.filter(s => statusCounts[s] > 0 || s === statusFilter).map(s => (
+                  <Link
+                    key={s}
+                    href={statusFilter === s ? `/dashboard/${ngo.id}` : `/dashboard/${ngo.id}?status=${s}`}
+                    className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] transition-colors ${
+                      statusFilter === s
+                        ? "border-primary-container/50 bg-primary-container/10 text-primary"
+                        : "border-black/10 bg-surface-container/50 text-on-surface-variant hover:text-primary"
+                    }`}
+                  >
+                    {s.replace("_", " ")} ({statusCounts[s]})
+                  </Link>
+                ))}
+              </div>
+
+              {visibleNeeds.length === 0 ? (
                 <div className="rounded-md border border-dashed border-black/10 bg-surface-container-low/50 p-10 text-center text-sm text-on-surface-variant">
-                  No needs yet. Ingest one above.
+                  {statusFilter ? `No ${statusFilter.replace("_", " ").toLowerCase()} needs.` : "No needs yet. Ingest one above."}
                 </div>
               ) : (
                 <ul className="space-y-3">
-                  {needs.map(n => (
+                  {visibleNeeds.map(n => (
                     <NeedRow key={n.id} need={n as any} viewerNgoId={session?.ngoId} />
                   ))}
                 </ul>

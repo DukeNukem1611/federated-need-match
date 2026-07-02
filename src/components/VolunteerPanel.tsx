@@ -8,6 +8,8 @@ type Volunteer = User & {
   skills: { skillId: string; skill: { name: string }; level: number }[];
   activeIncident?: { id: string; title: string } | null;
   activeNeed?: { id: string; rawText: string } | null;
+  // Filtered relation count from the dashboard query: COMPLETED matches.
+  _count?: { matches: number };
 };
 
 type Skill = { id: string; name: string };
@@ -81,6 +83,14 @@ export function VolunteerPanel({
                     </div>
                   )}
                   <span className="text-sm font-medium text-on-surface hover:text-primary-container">{v.name}</span>
+                  {(v._count?.matches ?? 0) > 0 && (
+                    <span
+                      className="rounded-full border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700"
+                      title={`${v._count!.matches} completed assignment${v._count!.matches > 1 ? "s" : ""}`}
+                    >
+                      ★ {v._count!.matches}
+                    </span>
+                  )}
                 </Link>
                 <span
                   className={`flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${statusStyles[v.status ?? "OFFLINE"]}`}

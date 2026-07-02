@@ -5,6 +5,9 @@ import { SignJWT, jwtVerify } from "jose";
 
 export const SESSION_COOKIE = "session";
 export const MAX_AGE = 60 * 60 * 8; // 8 hours, mirrors the admin cookie
+// "Keep me signed in" — installed-app users shouldn't be bounced to login
+// every morning. 30 days, refreshed on each login.
+export const REMEMBER_MAX_AGE = 60 * 60 * 24 * 30;
 
 export type SessionRole = "ADMIN" | "VOLUNTEER";
 
@@ -23,11 +26,14 @@ function secretKey(): Uint8Array {
 }
 
 // Sign a compact HS256 JWT carrying just the identity claims we need.
-export async function signSession(payload: SessionPayload): Promise<string> {
+export async function signSession(
+  payload: SessionPayload,
+  maxAge: number = MAX_AGE,
+): Promise<string> {
   return new SignJWT({ uid: payload.uid, role: payload.role, ngoId: payload.ngoId })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
-    .setExpirationTime(`${MAX_AGE}s`)
+    .setExpirationTime(`${maxAge}s`)
     .sign(secretKey());
 }
 
