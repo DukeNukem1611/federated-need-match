@@ -8,6 +8,7 @@
 import { ReportedNeed, User, VolunteerStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { haversineKm } from "@/services/geo/distance";
+import { notifyVolunteersOfRecommendation } from "@/services/notifications/notify";
 
 const WEIGHTS = {
   skill:        50,  // wrong skill = wrong person
@@ -30,6 +31,10 @@ export type ScoredVolunteer = {
   distanceKm: number;
   matchedSkills: string[];
   isCrossNgo: boolean;
+  // True when the volunteer is farther than their preferred travel radius (or
+  // has no known location). They are still surfaced — ranked below in-radius
+  // candidates — so a distant need never silently matches no one.
+  outOfRange: boolean;
 };
 
 export async function findTopVolunteersForNeed(
@@ -41,35 +46,41 @@ export async function findTopVolunteersForNeed(
     include: { requiredSkills: true },
   });
   if (!need) throw new Error(`Need ${needId} not found`);
-  if (need.status !== "OPEN") return [];
+  // Rankable while the need is live — including after an initial match — so the
+  // recommendations can be refreshed. Only a closed need is excluded.
+  if (need.status === "RESOLVED" || need.status === "CANCELLED") return [];
 
   const requiredSkillIds = need.requiredSkills.map(s => s.skillId);
 
-  // Step 1 — own NGO pool.
-  let candidates = await queryCandidates(
-    { ngoId: need.ngoId },
-    requiredSkillIds,
+  // Volunteers who already declined this need stay out of future rankings —
+  // re-proposing them would just bounce.
+  const declined = await prisma.match.findMany({
+    where: { needId, status: "DECLINED" },
+    select: { volunteerId: true },
+  });
+  const declinedIds = new Set(declined.map(d => d.volunteerId));
+
+  // Own-NGO pool, plus — when the need is shared — the federated pool from any
+  // other pool-sharing NGO. We score the union and let the same-NGO bonus keep
+  // local volunteers preferred in the ranking, rather than short-circuiting the
+  // network search whenever the owning NGO has any candidate at all.
+  const ownPool = await queryCandidates({ ngoId: need.ngoId }, requiredSkillIds);
+  const federatedPool = need.isShared
+    ? await queryCandidates(
+        { ngoId: { not: need.ngoId }, ngo: { sharesPool: true } },
+        requiredSkillIds,
+      )
+    : [];
+
+  const candidates = [...ownPool, ...federatedPool].filter(
+    v => !declinedIds.has(v.id),
   );
-  let isCrossNgoSearch = false;
-
-  // Step 2 — federated fallback (only when the need is opted-in to sharing).
-  if (candidates.length === 0 && need.isShared) {
-    candidates = await queryCandidates(
-      {
-        ngoId: { not: need.ngoId },
-        ngo:   { sharesPool: true },
-      },
-      requiredSkillIds,
-    );
-    isCrossNgoSearch = true;
-  }
-
   if (candidates.length === 0) return [];
 
-  // Step 3 — score, rank, slice to K.
+  // Score, rank, slice to K. `isCrossNgo` is derived per-candidate from its NGO.
   return candidates
-    .map(v => scoreCandidate(v, need, requiredSkillIds, isCrossNgoSearch))
-    .filter(s => s.score > 0)            // out-of-radius candidates are dropped
+    .map(v => scoreCandidate(v, need, requiredSkillIds, v.ngoId !== need.ngoId))
+    .filter(s => s.score > 0)
     .sort((a, b) => b.score - a.score)
     .slice(0, Math.max(1, k));
 }
@@ -114,22 +125,23 @@ function scoreCandidate(
     : 0;
   const skillScore = WEIGHTS.skill * coverage * (0.6 + 0.4 * avgLevel);
 
-  // Linear proximity decay; out of radius = hard reject.
+  // Linear proximity decay within the volunteer's preferred radius. Beyond it
+  // (or with no known location) the proximity bonus is simply 0 — the candidate
+  // is NOT rejected, so skills + urgency still earn a positive score and a
+  // distant need can still match the best available people, ranked lower.
   let distanceKm = Infinity;
   let proximityScore = 0;
+  let outOfRange = true;
   if (volunteer.latitude != null && volunteer.longitude != null) {
     distanceKm = haversineKm(
       volunteer.latitude, volunteer.longitude,
       need.latitude, need.longitude,
     );
     const maxR = volunteer.maxRadiusKm ?? 15;
-    proximityScore = distanceKm <= maxR
-      ? WEIGHTS.proximity * (1 - distanceKm / maxR)
-      : 0;
-  }
-
-  if (proximityScore === 0 && distanceKm !== 0) {
-    return { volunteer, score: 0, distanceKm, matchedSkills: [], isCrossNgo };
+    if (distanceKm <= maxR) {
+      proximityScore = WEIGHTS.proximity * (1 - distanceKm / maxR);
+      outOfRange = false;
+    }
   }
 
   const sameNgoScore = isCrossNgo ? 0 : WEIGHTS.sameNgo;
@@ -141,6 +153,7 @@ function scoreCandidate(
     distanceKm: Number(distanceKm.toFixed(2)),
     matchedSkills: matched.map(m => m.skillId),
     isCrossNgo,
+    outOfRange,
   };
 }
 
@@ -151,9 +164,18 @@ export async function matchAndPersist(needId: string, k: number = 5) {
   if (ranked.length === 0) return null;
   const best = ranked[0];
 
-  return prisma.$transaction(async tx => {
-    const match = await tx.match.create({
-      data: {
+  const result = await prisma.$transaction(async tx => {
+    // Re-runnable: clear prior auto-proposals for other volunteers (keeping any
+    // human-progressed matches), then upsert the current best so clicking
+    // "Find Match" again just refreshes the official pick instead of failing on
+    // the (needId, volunteerId) unique constraint.
+    await tx.match.deleteMany({
+      where: { needId, status: "PROPOSED", volunteerId: { not: best.volunteer.id } },
+    });
+    const match = await tx.match.upsert({
+      where: { needId_volunteerId: { needId, volunteerId: best.volunteer.id } },
+      update: { score: best.score, isCrossNgo: best.isCrossNgo },
+      create: {
         needId,
         volunteerId: best.volunteer.id,
         score: best.score,
@@ -166,4 +188,23 @@ export async function matchAndPersist(needId: string, k: number = 5) {
     });
     return { match, details: best, recommendations: ranked };
   });
+
+  // Best-effort: ping the recommended (non-BUSY) volunteers. A notification
+  // failure must never fail the match itself.
+  try {
+    const need = await prisma.reportedNeed.findUnique({
+      where: { id: needId },
+      select: { id: true, rawText: true, incidentId: true, ngo: { select: { name: true } } },
+    });
+    if (need) {
+      await notifyVolunteersOfRecommendation(
+        { id: need.id, rawText: need.rawText, ngoName: need.ngo.name, incidentId: need.incidentId },
+        ranked.map(r => r.volunteer.id),
+      );
+    }
+  } catch (notifyErr) {
+    console.error("[match] recommendation notify failed:", notifyErr);
+  }
+
+  return result;
 }

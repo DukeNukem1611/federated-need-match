@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 html,
@@ -12,44 +12,45 @@ body {
   font-family: Inter, ui-sans-serif, system-ui, sans-serif;
 }
 
-/* Soft radial glow so the dark surface never feels flat. */
+/* Soft tints so the light surface has gentle depth without feeling flat. */
 body {
   background-image:
-    radial-gradient(900px 600px at 85% -10%, rgba(0, 209, 255, 0.08), transparent 60%),
-    radial-gradient(700px 500px at -10% 110%, rgba(76, 214, 255, 0.06), transparent 60%);
+    radial-gradient(900px 600px at 85% -10%, rgba(8, 145, 178, 0.07), transparent 60%),
+    radial-gradient(700px 500px at -10% 110%, rgba(14, 116, 144, 0.05), transparent 60%);
   background-attachment: fixed;
 }
 
 ::selection {
-  background: rgba(0, 209, 255, 0.35);
-  color: #e6faff;
+  background: rgba(8, 145, 178, 0.2);
+  color: #0e3a47;
 }
 
 @layer components {
   .glass-panel {
-    background: rgba(28, 43, 60, 0.4);
+    background: rgba(255, 255, 255, 0.75);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(15, 33, 46, 0.08);
+    box-shadow: 0 1px 3px rgba(15, 33, 46, 0.04), 0 8px 24px rgba(15, 33, 46, 0.05);
   }
 
   .glass-card {
-    background: rgba(255, 255, 255, 0.03);
+    background: rgba(255, 255, 255, 0.6);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(15, 33, 46, 0.07);
   }
 
   .hero-gradient {
     background: radial-gradient(
       circle at 50% 40%,
-      rgba(0, 209, 255, 0.18) 0%,
+      rgba(8, 145, 178, 0.12) 0%,
       transparent 65%
     );
   }
 
   .text-glow {
-    text-shadow: 0 0 24px rgba(0, 209, 255, 0.45);
+    text-shadow: 0 1px 2px rgba(8, 145, 178, 0.18);
   }
 
   .label-caps {
@@ -76,20 +77,20 @@ body {
 
   .btn-ghost {
     @apply inline-flex items-center justify-center gap-2 rounded-md border
-      border-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em]
-      text-on-surface-variant transition-all hover:text-primary hover:bg-white/5
+      border-black/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em]
+      text-on-surface-variant transition-all hover:text-primary hover:bg-black/5
       active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none;
     font-family: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
   }
 
   .input-field {
-    @apply w-full rounded-md border border-white/10 bg-surface-container-low
+    @apply w-full rounded-md border border-black/10 bg-surface-container-low
       px-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant/60
       transition-colors focus:border-primary-container focus:outline-none
       focus:ring-0 focus:shadow-glow-cyan;
   }
 
   .divider-soft {
-    @apply border-white/5;
+    @apply border-black/5;
   }
 }

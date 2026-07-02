@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { incidentCategoryEmoji, incidentCategoryLabel } from "@/lib/format";
+import { LocationAutocomplete } from "@/components/LocationAutocomplete";
+import { LocationPicker } from "@/components/LocationPicker";
 import type { IncidentCategory } from "@prisma/client";
 
 const CATEGORIES: IncidentCategory[] = [
@@ -10,16 +12,35 @@ const CATEGORIES: IncidentCategory[] = [
   "OUTBREAK", "ACCIDENT", "CONFLICT", "OTHER",
 ];
 
-export function NewIncidentForm({ ngos }: { ngos: { id: string; name: string }[] }) {
+export function NewIncidentForm({
+  ngos = [],
+  lockedNgo,
+  mapsApiKey,
+}: {
+  // Selectable list — only used when there's no NGO context to lock to.
+  ngos?: { id: string; name: string }[];
+  // When filing from an NGO's context (dashboard / volunteer page), the incident
+  // is locked to that NGO so an organization can only file under its own name.
+  lockedNgo?: { id: string; name: string };
+  mapsApiKey?: string;
+}) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [createdByNgoId, setNgoId] = useState(ngos[0]?.id ?? "");
+  // Locked to the contextual NGO when present; otherwise the user picks from the
+  // list (the only way to establish identity when there's no NGO context).
+  const [createdByNgoId, setNgoId] = useState(lockedNgo?.id ?? ngos[0]?.id ?? "");
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState<IncidentCategory>("FLOOD");
   const [locationLabel, setLocationLabel] = useState("");
+  // Exact coordinates from a typeahead pick (place mode). Null until the user
+  // selects a suggestion; cleared the moment they edit the text again, so a
+  // stale pick can never override what's now in the box.
+  const [pickedLat, setPickedLat] = useState<number | null>(null);
+  const [pickedLng, setPickedLng] = useState<number | null>(null);
   const [inputType, setInputType] = useState<"place" | "coords">("place");
+  const [showMap, setShowMap] = useState(false);
   const [latitude, setLatitude] = useState("12.9716");
   const [longitude, setLongitude] = useState("77.5946");
   const [radiusKm, setRadiusKm] = useState("2");
@@ -40,6 +61,19 @@ export function NewIncidentForm({ ngos }: { ngos: { id: string; name: string }[]
         setError("Unable to retrieve your location.");
       }
     );
+  }
+
+  // Map pin → exact coords + a reverse-geocoded label so the field isn't blank.
+  async function handleMapPick(lat: number, lng: number) {
+    setPickedLat(lat);
+    setPickedLng(lng);
+    try {
+      const res = await fetch(`/api/geocode?lat=${lat}&lng=${lng}`);
+      const data = await res.json();
+      if (data?.label) setLocationLabel(data.label);
+    } catch {
+      // Reverse lookup failed — keep the coords; label can stay as-is.
+    }
   }
 
   async function submit(e: React.FormEvent) {
@@ -66,29 +100,11 @@ export function NewIncidentForm({ ngos }: { ngos: { id: string; name: string }[]
     }
     
     setPending(true);
-    
-    if (inputType === "place" && finalLocationLabel) {
-      try {
-        const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(finalLocationLabel)}`);
-        if (geoRes.ok) {
-          const geoData = await geoRes.json();
-          if (geoData && geoData.length > 0) {
-            finalLat = parseFloat(geoData[0].lat);
-            finalLng = parseFloat(geoData[0].lon);
-          } else {
-             setError(`We couldn't find "${finalLocationLabel}" on the map. Please try a more general area name or choose "Provide Coordinates Instead".`);
-             setPending(false);
-             return;
-          }
-        }
-      } catch (err) {
-        console.error("Geocoding failed", err);
-        setError("Map service is currently unavailable. Please provide coordinates instead.");
-        setPending(false);
-        return;
-      }
-    }
 
+    // Place mode: send the label without coords and let the server geocode it
+    // (shared with need ingestion, with progressive fallback for specific spots).
+    // Coords mode: send the explicit lat/lng the user entered.
+    const usingCoords = inputType === "coords";
     const res = await fetch("/api/incidents", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -96,8 +112,10 @@ export function NewIncidentForm({ ngos }: { ngos: { id: string; name: string }[]
         title,
         category,
         locationLabel: finalLocationLabel,
-        latitude:  finalLat,
-        longitude: finalLng,
+        // Coords mode → the typed lat/lng. Place mode → the exact pick if the
+        // user chose a suggestion, else null so the server geocodes + falls back.
+        latitude:  usingCoords ? finalLat : pickedLat,
+        longitude: usingCoords ? finalLng : pickedLng,
         radiusKm:  parseFloat(radiusKm),
         description: description.trim() || null,
         createdByNgoId,
@@ -119,20 +137,28 @@ export function NewIncidentForm({ ngos }: { ngos: { id: string; name: string }[]
       <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-primary-container/60 to-transparent" />
 
       <div className="grid gap-5">
-        <label>
+        <div>
           <span className="label-caps mb-1.5 block">Filing NGO</span>
-          <select
-            value={createdByNgoId}
-            onChange={e => setNgoId(e.target.value)}
-            className="input-field"
-          >
-            {ngos.map(n => (
-              <option key={n.id} value={n.id} className="bg-surface-container-low text-on-surface">
-                {n.name}
-              </option>
-            ))}
-          </select>
-        </label>
+          {lockedNgo ? (
+            <div className="flex items-center gap-2 rounded-md border border-black/10 bg-surface-container-low/60 px-3 py-2.5">
+              <span className="text-primary-container">◆</span>
+              <span className="text-sm font-medium text-on-surface">{lockedNgo.name}</span>
+              <span className="ml-auto label-caps text-on-surface-variant">Filing as your NGO</span>
+            </div>
+          ) : (
+            <select
+              value={createdByNgoId}
+              onChange={e => setNgoId(e.target.value)}
+              className="input-field"
+            >
+              {ngos.map(n => (
+                <option key={n.id} value={n.id} className="bg-surface-container-low text-on-surface">
+                  {n.name}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
 
         <label>
           <span className="label-caps mb-1.5 block">Title</span>
@@ -157,7 +183,7 @@ export function NewIncidentForm({ ngos }: { ngos: { id: string; name: string }[]
                   className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] transition-colors ${
                     active
                       ? "border-primary-container/50 bg-primary-container/10 text-primary"
-                      : "border-white/10 bg-surface-container/50 text-on-surface-variant hover:text-on-surface"
+                      : "border-black/10 bg-surface-container/50 text-on-surface-variant hover:text-on-surface"
                   }`}
                 >
                   <span>{incidentCategoryEmoji[c]}</span>
@@ -176,11 +202,25 @@ export function NewIncidentForm({ ngos }: { ngos: { id: string; name: string }[]
                 <button
                   type="button"
                   onClick={useCurrentLocation}
-                  className="text-[11px] font-semibold uppercase text-emerald-400 hover:text-emerald-300"
+                  className="text-[11px] font-semibold uppercase text-emerald-600 hover:text-emerald-600"
                 >
                   📍 Use Current Location
                 </button>
-                <div className="h-3 w-px bg-white/20"></div>
+                {mapsApiKey && (
+                  <>
+                    <div className="h-3 w-px bg-black/20"></div>
+                    <button
+                      type="button"
+                      className={`text-[11px] font-semibold uppercase ${
+                        showMap ? "text-primary-container" : "text-primary hover:text-primary-container"
+                      }`}
+                      onClick={() => setShowMap(s => !s)}
+                    >
+                      {showMap ? "Hide Map" : "📌 Pin on Map"}
+                    </button>
+                  </>
+                )}
+                <div className="h-3 w-px bg-black/20"></div>
                 <button
                   type="button"
                   className="text-[11px] font-semibold uppercase text-primary hover:text-primary-container"
@@ -190,12 +230,40 @@ export function NewIncidentForm({ ngos }: { ngos: { id: string; name: string }[]
                 </button>
               </div>
             </div>
-            <input
+            <LocationAutocomplete
               value={locationLabel}
-              onChange={e => setLocationLabel(e.target.value)}
+              onChange={label => {
+                setLocationLabel(label);
+                // Editing the text invalidates any previous exact pick.
+                setPickedLat(null);
+                setPickedLng(null);
+              }}
+              onPick={r => {
+                setLocationLabel(r.matchedLabel);
+                setPickedLat(r.lat);
+                setPickedLng(r.lng);
+              }}
               placeholder="e.g. MG Road, Bangalore"
-              className="input-field mb-3"
+              className="input-field"
             />
+            <p className="mb-3 mt-1.5 text-[11px] leading-snug text-on-surface-variant">
+              {pickedLat != null ? (
+                <span className="text-emerald-600">
+                  ✓ Exact location set ({pickedLat.toFixed(4)}, {pickedLng!.toFixed(4)})
+                </span>
+              ) : (
+                <>Pick a suggestion or drop a pin on the map for an exact spot — otherwise we&rsquo;ll match the closest area we can find when you file.</>
+              )}
+            </p>
+            {mapsApiKey && showMap && (
+              <div className="mb-3">
+                <LocationPicker
+                  apiKey={mapsApiKey}
+                  value={pickedLat != null && pickedLng != null ? { lat: pickedLat, lng: pickedLng } : null}
+                  onChange={handleMapPick}
+                />
+              </div>
+            )}
             <label>
               <span className="label-caps mb-1.5 block">Radius (km)</span>
               <input value={radiusKm} onChange={e => setRadiusKm(e.target.value)} className="input-field mono-data sm:w-1/3" />
@@ -209,11 +277,11 @@ export function NewIncidentForm({ ngos }: { ngos: { id: string; name: string }[]
                 <button
                   type="button"
                   onClick={useCurrentLocation}
-                  className="text-[11px] font-semibold uppercase text-emerald-400 hover:text-emerald-300"
+                  className="text-[11px] font-semibold uppercase text-emerald-600 hover:text-emerald-600"
                 >
                   📍 Use Current Location
                 </button>
-                <div className="h-3 w-px bg-white/20"></div>
+                <div className="h-3 w-px bg-black/20"></div>
                 <button
                   type="button"
                   className="text-[11px] font-semibold uppercase text-primary hover:text-primary-container"
@@ -252,12 +320,12 @@ export function NewIncidentForm({ ngos }: { ngos: { id: string; name: string }[]
         </label>
 
         {error && (
-          <p className="rounded-md border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+          <p className="rounded-md border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm text-red-700">
             {error}
           </p>
         )}
 
-        <div className="flex items-center justify-end gap-3 border-t border-white/5 pt-5">
+        <div className="flex items-center justify-end gap-3 border-t border-black/5 pt-5">
           <button type="submit" className="btn-primary" disabled={pending}>
             {pending ? "Filing…" : "File Incident"}
             <span>↗</span>

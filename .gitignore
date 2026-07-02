@@ -18,3 +18,9 @@ prisma/*.db-journal
 # IDE
 .vscode/
 .idea/
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# TypeScript incremental build state
+tsconfig.tsbuildinfo

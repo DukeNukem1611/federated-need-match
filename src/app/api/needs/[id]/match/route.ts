@@ -2,7 +2,9 @@
 // Ranks the top K candidates, persists the top pick as the Match, and
 // returns the full ranked list so the UI can show alternates.
 import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
 import { matchAndPersist } from "@/services/matching/matcher";
+import { requireNgoMember } from "@/lib/api-auth";
 
 const DEFAULT_K = 5;
 
@@ -11,6 +13,17 @@ export async function POST(
   { params }: { params: { id: string } },
 ) {
   try {
+    // Only the owning NGO's members may run matching on a need.
+    const need = await prisma.reportedNeed.findUnique({
+      where: { id: params.id },
+      select: { ngoId: true },
+    });
+    if (!need) {
+      return NextResponse.json({ error: "Need not found" }, { status: 404 });
+    }
+    const auth = await requireNgoMember(req, need.ngoId);
+    if ("error" in auth) return auth.error;
+
     const kParam = req.nextUrl.searchParams.get("k");
     const k = kParam ? Math.max(1, Math.min(20, parseInt(kParam, 10) || DEFAULT_K)) : DEFAULT_K;
 

@@ -4,8 +4,15 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { requirePageAuth } from "@/lib/auth";
+import { CountUp } from "@/components/CountUp";
+import { LiveEyebrow } from "@/components/section";
+import { RemoveIncidentButton } from "@/components/RemoveIncidentButton";
+import { AttachedPhoto } from "@/components/AttachedPhoto";
+import { withPhotoFlag } from "@/lib/photos";
 import { IncidentStatusChanger } from "@/components/IncidentStatusChanger";
 import { IncidentUpdateForm } from "@/components/IncidentUpdateForm";
+import { IncidentNeedForm } from "@/components/IncidentNeedForm";
 import { LiveRefresh } from "@/components/LiveRefresh";
 import { NeedRow } from "@/components/NeedRow";
 import {
@@ -34,6 +41,7 @@ export default async function IncidentDetail({
   params: { id: string };
   searchParams: { ngo?: string };
 }) {
+  const { session, superAdmin } = await requirePageAuth();
   const [incident, allNgos] = await Promise.all([
     prisma.incident.findUnique({
       where: { id: params.id },
@@ -51,7 +59,10 @@ export default async function IncidentDetail({
           include: {
             ngo: { select: { id: true, name: true } },
             requiredSkills: { include: { skill: true } },
-            matches: { orderBy: { createdAt: "desc" } },
+            matches: {
+              orderBy: { createdAt: "desc" },
+              include: { volunteer: { select: { id: true, name: true, ngo: { select: { name: true } } } } },
+            },
           },
         },
       },
@@ -61,14 +72,24 @@ export default async function IncidentDetail({
 
   if (!incident) notFound();
 
-  const contributors = Array.from(new Set(incident.updates.map(u => u.ngo.name)));
+  // Photo bytes stay server-side (this page live-refreshes every 10s); the
+  // browser fetches them once from the cacheable photo endpoints.
+  const updates = incident.updates.map(withPhotoFlag);
+  const needs = incident.needs.map(withPhotoFlag);
+
+  // Members always act as their own NGO — no impersonation dropdowns. The
+  // super-admin has no NGO of their own, so they keep the full list to act
+  // on behalf of one.
+  const postNgos = session ? allNgos.filter(n => n.id === session.ngoId) : allNgos;
+
+  const contributors = Array.from(new Set(updates.map(u => u.ngo.name)));
   const startedAgo = timeAgo(incident.startedAt);
 
   return (
     <main className="relative min-h-screen overflow-hidden">
       <div className="pointer-events-none absolute -top-40 -right-20 h-96 w-96 rounded-full bg-primary-container/10 blur-[140px]" />
 
-      <nav className="relative z-10 border-b border-white/5 bg-surface/70 backdrop-blur-md">
+      <nav className="relative z-10 border-b border-black/5 bg-surface/70 backdrop-blur-md">
         <div className="mx-auto flex max-w-[1440px] items-center justify-between px-6 py-4 sm:px-10">
           <Link href="/" className="flex items-center gap-3 text-primary-container hover:text-primary">
             <div className="flex h-9 w-9 items-center justify-center rounded bg-primary-container/15">
@@ -90,13 +111,13 @@ export default async function IncidentDetail({
 
           <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
             <div className="flex items-start gap-4">
-              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-md border border-white/10 bg-surface-container-low text-3xl">
+              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-md border border-black/10 bg-surface-container-low text-3xl">
                 {incidentCategoryEmoji[incident.category]}
               </div>
               <div className="min-w-0">
-                <p className="label-caps text-surface-tint">
+                <LiveEyebrow>
                   {incidentCategoryLabel[incident.category]} · started {startedAgo}
-                </p>
+                </LiveEyebrow>
                 <h1 className="heading mt-1 text-2xl font-bold text-on-surface sm:text-4xl">
                   {incident.title}
                 </h1>
@@ -113,11 +134,11 @@ export default async function IncidentDetail({
                   </p>
                 )}
                 
-                <div className="mt-5 h-[200px] w-full max-w-3xl overflow-hidden rounded-xl border border-white/10 bg-surface-container-low opacity-90 transition-opacity hover:opacity-100 sm:h-[280px]">
+                <div className="mt-5 h-[200px] w-full max-w-3xl overflow-hidden rounded-xl border border-black/10 bg-surface-container-low opacity-90 transition-opacity hover:opacity-100 sm:h-[280px]">
                   <iframe
                     width="100%"
                     height="100%"
-                    style={{ border: 0, filter: "invert(90%) hue-rotate(180deg) brightness(85%) contrast(120%)" }}
+                    style={{ border: 0 }}
                     loading="lazy"
                     allowFullScreen
                     referrerPolicy="no-referrer-when-downgrade"
@@ -131,23 +152,24 @@ export default async function IncidentDetail({
               <IncidentStatusChanger
                 incidentId={incident.id}
                 currentStatus={incident.status}
-                ngos={allNgos}
+                ngos={postNgos}
                 defaultNgoId={searchParams.ngo}
               />
               <p className="label-caps text-on-surface-variant">
                 Filed by{" "}
                 <span className="text-on-surface">{incident.createdByNgo.name}</span>
               </p>
+              {superAdmin && <RemoveIncidentButton incidentId={incident.id} />}
             </div>
           </div>
 
-          <div className="mt-6 grid grid-cols-2 gap-3 border-t border-white/5 pt-5 sm:grid-cols-4">
-            <Stat label="Updates"      value={incident.updates.length} />
-            <Stat label="Linked Needs" value={incident.needs.length}    />
+          <div className="mt-6 grid grid-cols-2 gap-3 border-t border-black/5 pt-5 sm:grid-cols-4">
+            <Stat label="Updates"      value={updates.length} />
+            <Stat label="Linked Needs" value={needs.length}    />
             <Stat label="NGOs On Site" value={Math.max(contributors.length, 1)} />
             <Stat
               label="Last Update"
-              valueText={incident.updates[0] ? timeAgo(incident.updates[0].createdAt) : "—"}
+              valueText={updates[0] ? timeAgo(updates[0].createdAt) : "—"}
             />
           </div>
 
@@ -170,7 +192,7 @@ export default async function IncidentDetail({
           <section className="space-y-gutter lg:col-span-2">
             <IncidentUpdateForm
               incidentId={incident.id}
-              ngos={allNgos}
+              ngos={postNgos}
               defaultNgoId={searchParams.ngo}
             />
 
@@ -179,7 +201,7 @@ export default async function IncidentDetail({
                 <div>
                   <p className="label-caps text-surface-tint">Field Log</p>
                   <h2 className="heading mt-1 text-xl font-semibold text-on-surface">
-                    Timeline ({incident.updates.length})
+                    Timeline ({updates.length})
                   </h2>
                 </div>
                 <div className="flex items-center gap-3">
@@ -190,21 +212,21 @@ export default async function IncidentDetail({
                 </div>
               </div>
 
-              {incident.updates.length === 0 ? (
-                <div className="rounded-md border border-dashed border-white/10 bg-surface-container-low/50 p-10 text-center text-sm text-on-surface-variant">
+              {updates.length === 0 ? (
+                <div className="rounded-md border border-dashed border-black/10 bg-surface-container-low/50 p-10 text-center text-sm text-on-surface-variant">
                   No updates yet — be the first to post one above.
                 </div>
               ) : (
                 <ol className="relative space-y-5 pl-6">
-                  <span className="absolute inset-y-2 left-[7px] w-px bg-gradient-to-b from-primary-container/40 via-white/10 to-transparent" />
-                  {incident.updates.map(u => {
+                  <span className="absolute inset-y-2 left-[7px] w-px bg-gradient-to-b from-primary-container/40 via-black/10 to-transparent" />
+                  {updates.map(u => {
                     const s = updateKindStyle[u.kind];
                     return (
                       <li key={u.id} className="relative">
                         <span
                           className={`absolute -left-[19px] top-1.5 h-3 w-3 rounded-full ring-2 ring-surface ${s.dot}`}
                         />
-                        <div className="rounded-md border border-white/5 bg-surface-container/60 p-4">
+                        <div className="rounded-md border border-black/5 bg-surface-container/60 p-4">
                           <div className="flex flex-wrap items-center gap-2">
                             <span
                               className={`flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${s.chip}`}
@@ -224,9 +246,17 @@ export default async function IncidentDetail({
                               {timeAgo(u.createdAt)}
                             </span>
                           </div>
-                          <p className="mt-2 text-sm leading-relaxed text-on-surface">
-                            {u.body}
-                          </p>
+                          {u.body && (
+                            <p className="mt-2 text-sm leading-relaxed text-on-surface">
+                              {u.body}
+                            </p>
+                          )}
+                          {u.hasPhoto && (
+                            <AttachedPhoto
+                              src={`/api/updates/${u.id}/photo`}
+                              alt={u.body || "Field photo"}
+                            />
+                          )}
                           {u.latitude != null && u.longitude != null && (
                             <p className="mono-data mt-2 text-[10px] uppercase tracking-wider text-on-surface-variant">
                               ◎ {u.latitude.toFixed(4)}, {u.longitude.toFixed(4)}
@@ -251,17 +281,27 @@ export default async function IncidentDetail({
                 Reported needs tied to this incident — feed the federated matcher.
               </p>
 
-              {incident.needs.length === 0 ? (
-                <div className="mt-4 rounded-md border border-dashed border-white/10 bg-surface-container-low/50 p-6 text-center text-xs text-on-surface-variant">
+              {needs.length === 0 ? (
+                <div className="mt-4 rounded-md border border-dashed border-black/10 bg-surface-container-low/50 p-6 text-center text-xs text-on-surface-variant">
                   No reported needs linked yet.
                 </div>
               ) : (
                 <ul className="mt-4 space-y-3">
-                  {incident.needs.map(n => (
-                    <NeedRow key={n.id} need={n as any} />
+                  {needs.map(n => (
+                    <NeedRow key={n.id} need={n as any} viewerNgoId={session?.ngoId} />
                   ))}
                 </ul>
               )}
+
+              <IncidentNeedForm
+                incidentId={incident.id}
+                incidentLat={incident.latitude}
+                incidentLng={incident.longitude}
+                incidentLocationLabel={incident.locationLabel}
+                ngos={postNgos}
+                defaultNgoId={searchParams.ngo}
+                mapsApiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ""}
+              />
             </div>
 
             <div className="glass-panel rounded-xl p-6">
@@ -291,7 +331,7 @@ function Stat({
   return (
     <div>
       <p className="heading text-2xl font-semibold text-on-surface">
-        {valueText ?? value}
+        {valueText ?? (value != null ? <CountUp value={value} /> : null)}
       </p>
       <p className="label-caps mt-1">{label}</p>
     </div>

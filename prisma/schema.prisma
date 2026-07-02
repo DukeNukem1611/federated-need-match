@@ -17,6 +17,8 @@ model NGO {
   slug       String   @unique
   // If true, this NGO's volunteers are visible to the shared network pool.
   sharesPool Boolean  @default(true)
+  // Profile picture / logo (compressed data URL), set by the NGO's admin.
+  logoData   String?
   createdAt  DateTime @default(now())
 
   users           User[]
@@ -45,18 +47,86 @@ model User {
   ngoId String
   ngo   NGO      @relation(fields: [ngoId], references: [id])
 
+  // Auth. passwordHash is nullable only so older rows migrate cleanly; every
+  // seeded + newly created user gets one. mustChangePassword is set when an
+  // admin issues a default password and cleared once the user changes it.
+  passwordHash       String?
+  mustChangePassword Boolean @default(false)
+
+  // Profile picture (compressed data URL), set by the user themselves.
+  avatarData String?
+
   // Volunteer-only fields (nullable for admins).
   status      VolunteerStatus? @default(AVAILABLE)
   latitude    Float?
   longitude   Float?
   maxRadiusKm Float?           @default(15)
 
+  // Self-reported current deployment. A volunteer can flag that they are
+  // actively working a specific incident and/or fulfilling a specific need
+  // (their NGO's own or a shared one), so the NGO and network see who is
+  // engaged where. Both are optional and independent of `status`.
+  activeIncidentId String?
+  activeIncident   Incident?     @relation("incidentVolunteers", fields: [activeIncidentId], references: [id])
+  activeNeedId     String?
+  activeNeed       ReportedNeed? @relation("needVolunteers", fields: [activeNeedId], references: [id])
+
   skills    VolunteerSkill[]
   matches   Match[]
   incidentUpdates IncidentUpdate[]
+  notifications   Notification[]
+  pushSubscriptions PushSubscription[]
   createdAt DateTime         @default(now())
 
   @@index([ngoId, role, status])
+  @@index([activeIncidentId])
+  @@index([activeNeedId])
+}
+
+// ─── Notifications ───────────────────────────────────────────────────
+// One row per (recipient, event). When a new incident is filed we fan a
+// row out to every user so the bell + user page can show an unread feed.
+enum NotificationType {
+  INCIDENT_NEW
+  INCIDENT_UPDATE
+  GENERAL
+}
+
+model Notification {
+  id     String           @id @default(cuid())
+  userId String
+  user   User             @relation(fields: [userId], references: [id])
+
+  type  NotificationType @default(GENERAL)
+  title String
+  body  String
+
+  // Optional deep-link target so clicking the notification can route to
+  // the relevant incident.
+  incidentId String?
+  incident   Incident? @relation(fields: [incidentId], references: [id])
+
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, read, createdAt])
+}
+
+// ─── Web Push subscriptions ──────────────────────────────────────────
+// One row per browser/device a user has enabled push on. `endpoint` is unique
+// (the browser's push service URL); keys are needed to encrypt the payload.
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 // ─── Skills ──────────────────────────────────────────────────────────
@@ -130,8 +200,14 @@ model ReportedNeed {
   incidentId String?
   incident   Incident? @relation(fields: [incidentId], references: [id])
 
+  // Optional field photo (compressed data URL) — a picture of the situation
+  // often says more than the report text. Caption lives in rawText.
+  photoData String?
+
   requiredSkills NeedSkill[]
   matches        Match[]
+  // Volunteers self-reporting that they are fulfilling this need.
+  activeVolunteers User[]    @relation("needVolunteers")
   createdAt      DateTime    @default(now())
 
   @@index([status, urgency, isShared])
@@ -229,6 +305,9 @@ model Incident {
 
   updates        IncidentUpdate[]
   needs          ReportedNeed[]
+  notifications  Notification[]
+  // Volunteers self-reporting that they are deployed to this incident.
+  activeVolunteers User[]         @relation("incidentVolunteers")
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
 
@@ -250,6 +329,9 @@ model IncidentUpdate {
 
   kind       UpdateKind
   body       String
+  // Optional field photo (compressed data URL). The body doubles as its
+  // caption; an update may be photo-only with an empty body.
+  photoData  String?
   // Optional pinpoint location for the update itself (e.g. "this exact
   // intersection is blocked"), distinct from the incident's centroid.
   latitude   Float?

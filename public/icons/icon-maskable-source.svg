@@ -1,0 +1,14 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0aa5c2"/>
+      <stop offset="1" stop-color="#0672a0"/>
+    </linearGradient>
+  </defs>
+  <!-- Full-bleed background so the OS mask (circle/squircle) never clips a corner -->
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <!-- Mark kept within the ~80% safe zone (inset ~72px each side) -->
+  <path d="M256 152 L360 256 L256 360 L152 256 Z" fill="#ffffff"/>
+  <path d="M256 200 L312 256 L256 312 L200 256 Z" fill="#0672a0"/>
+  <circle cx="256" cy="256" r="22" fill="#ffffff"/>
+</svg>

@@ -35,7 +35,13 @@ export function IncidentStatusChanger({
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [target, setTarget] = useState<IncidentStatus>(currentStatus);
-  const [ngoId, setNgoId] = useState(defaultNgoId ?? ngos[0]?.id ?? "");
+  // When exactly one NGO is passed the identity is fixed (session-locked) —
+  // no dropdown. Ignore a defaultNgoId that isn't in the allowed list.
+  const lockedNgo = ngos.length === 1 ? ngos[0] : null;
+  const [ngoId, setNgoId] = useState(
+    lockedNgo?.id ??
+      (defaultNgoId && ngos.some(n => n.id === defaultNgoId) ? defaultNgoId : ngos[0]?.id ?? ""),
+  );
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -128,8 +134,8 @@ export function IncidentStatusChanger({
                   onClick={() => setTarget(s)}
                   className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] transition-colors ${
                     active
-                      ? incidentStatusColor[s] + " ring-1 ring-white/20"
-                      : "border-white/10 bg-surface-container/50 text-on-surface-variant hover:text-on-surface"
+                      ? incidentStatusColor[s] + " ring-1 ring-black/20"
+                      : "border-black/10 bg-surface-container/50 text-on-surface-variant hover:text-on-surface"
                   }`}
                 >
                   <span className={`h-1.5 w-1.5 rounded-full ${incidentStatusDot[s]}`} />
@@ -141,17 +147,23 @@ export function IncidentStatusChanger({
 
           <div className="mt-3">
             <span className="label-caps mb-1 block">Posting as</span>
-            <select
-              value={ngoId}
-              onChange={e => setNgoId(e.target.value)}
-              className="input-field text-xs"
-            >
-              {ngos.map(n => (
-                <option key={n.id} value={n.id} className="bg-surface-container-low text-on-surface">
-                  {n.name}
-                </option>
-              ))}
-            </select>
+            {lockedNgo ? (
+              <span className="inline-flex items-center gap-1.5 rounded-md border border-primary-container/30 bg-primary-container/10 px-2.5 py-1.5 text-xs font-medium text-primary">
+                ◆ {lockedNgo.name}
+              </span>
+            ) : (
+              <select
+                value={ngoId}
+                onChange={e => setNgoId(e.target.value)}
+                className="input-field text-xs"
+              >
+                {ngos.map(n => (
+                  <option key={n.id} value={n.id} className="bg-surface-container-low text-on-surface">
+                    {n.name}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
 
           <div className="mt-3">
@@ -166,12 +178,12 @@ export function IncidentStatusChanger({
           </div>
 
           {error && (
-            <p className="mt-2 rounded-md border border-red-400/30 bg-red-500/10 px-2 py-1 text-[11px] text-red-200">
+            <p className="mt-2 rounded-md border border-red-400/30 bg-red-500/10 px-2 py-1 text-[11px] text-red-700">
               {error}
             </p>
           )}
 
-          <div className="mt-3 flex items-center justify-end gap-2 border-t border-white/5 pt-3">
+          <div className="mt-3 flex items-center justify-end gap-2 border-t border-black/5 pt-3">
             <button
               type="button"
               className="btn-ghost !px-3 !py-1.5 !text-[10px]"

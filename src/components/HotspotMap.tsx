@@ -1,7 +1,7 @@
 // Lightweight SVG "hotspot map" — no leaflet dep needed for the MVP.
 // Projects lat/lng into the SVG viewbox by min/max normalization, then
-// renders a colored, urgency-sized circle per need. Dark-theme styling
-// to match the "High-Tech Precision" system.
+// renders a colored, urgency-sized circle per need. Light-theme styling
+// to match the "Calm Relief" system.
 "use client";
 
 import type { NeedCategory, Urgency } from "@prisma/client";
@@ -29,10 +29,10 @@ const URGENCY_FILL: Record<Urgency, string> = {
 };
 
 const URGENCY_LABEL: Record<Urgency, string> = {
-  LOW:      "border-white/10 bg-white/5 text-on-surface-variant",
-  MEDIUM:   "border-yellow-400/30 bg-yellow-400/10 text-yellow-200",
-  HIGH:     "border-orange-400/30 bg-orange-400/10 text-orange-200",
-  CRITICAL: "border-red-400/40 bg-red-500/15 text-red-200",
+  LOW:      "border-black/10 bg-black/5 text-on-surface-variant",
+  MEDIUM:   "border-yellow-400/30 bg-yellow-400/10 text-yellow-700",
+  HIGH:     "border-orange-400/30 bg-orange-400/10 text-orange-700",
+  CRITICAL: "border-red-400/40 bg-red-500/15 text-red-700",
 };
 
 export function HotspotMap({ needs }: { needs: Need[] }) {
@@ -49,24 +49,30 @@ export function HotspotMap({ needs }: { needs: Need[] }) {
   const lngs = needs.map(n => n.longitude);
   const minLat = Math.min(...lats), maxLat = Math.max(...lats);
   const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
-  const latSpan = Math.max(maxLat - minLat, 0.01);
-  const lngSpan = Math.max(maxLng - minLng, 0.01);
+  const rawLatSpan = maxLat - minLat;
+  const rawLngSpan = maxLng - minLng;
+  const latSpan = Math.max(rawLatSpan, 0.01);
+  const lngSpan = Math.max(rawLngSpan, 0.01);
 
+  // When every signal shares a coordinate (e.g. a single shared need), the
+  // raw span collapses to 0. Center that axis at 0.5 instead of normalizing
+  // to 0, which would otherwise pin the dot into the bottom-left corner.
+  const EPS = 1e-9;
   const W = 800, H = 500, PAD = 40;
   const project = (lat: number, lng: number) => ({
-    x: PAD + ((lng - minLng) / lngSpan) * (W - 2 * PAD),
-    y: PAD + (1 - (lat - minLat) / latSpan) * (H - 2 * PAD),
+    x: PAD + (rawLngSpan < EPS ? 0.5 : (lng - minLng) / lngSpan) * (W - 2 * PAD),
+    y: PAD + (rawLatSpan < EPS ? 0.5 : 1 - (lat - minLat) / latSpan) * (H - 2 * PAD),
   });
 
   return (
     <div className="glass-panel overflow-hidden rounded-xl">
-      <div className="flex items-center justify-between border-b border-white/5 px-5 py-3">
+      <div className="flex items-center justify-between border-b border-black/5 px-5 py-3">
         <div className="flex items-center gap-3">
           <span className="h-2 w-2 animate-pulse-dot rounded-full bg-primary-container" />
           <p className="label-caps text-surface-tint">Hotspot Telemetry</p>
         </div>
         <span className="mono-data text-[11px] text-on-surface-variant">
-          {needs.length} signals
+          {needs.length} {needs.length === 1 ? "signal" : "signals"}
         </span>
       </div>
 
@@ -75,21 +81,21 @@ export function HotspotMap({ needs }: { needs: Need[] }) {
         className="h-auto w-full"
         style={{
           background:
-            "radial-gradient(circle at 50% 50%, rgba(0,209,255,0.05), transparent 70%), #0d1c2d",
+            "radial-gradient(circle at 50% 50%, rgba(8,145,178,0.06), transparent 70%), #eef3f9",
         }}
       >
         {Array.from({ length: 9 }, (_, i) => (
           <line
             key={`v${i}`}
             x1={(W / 8) * i} y1={0} x2={(W / 8) * i} y2={H}
-            stroke="rgba(255,255,255,0.05)" strokeWidth={1}
+            stroke="rgba(15,33,46,0.06)" strokeWidth={1}
           />
         ))}
         {Array.from({ length: 6 }, (_, i) => (
           <line
             key={`h${i}`}
             x1={0} y1={(H / 5) * i} x2={W} y2={(H / 5) * i}
-            stroke="rgba(255,255,255,0.05)" strokeWidth={1}
+            stroke="rgba(15,33,46,0.06)" strokeWidth={1}
           />
         ))}
 
@@ -104,23 +110,21 @@ export function HotspotMap({ needs }: { needs: Need[] }) {
               <circle
                 cx={x} cy={y} r={r}
                 fill={color}
-                stroke="rgba(255,255,255,0.8)" strokeWidth={1.5}
+                stroke="rgba(255,255,255,0.95)" strokeWidth={2}
               >
-                <title>
-                  [{n.urgency}] {n.ngo.name} — {n.rawText}
-                </title>
+                <title>{`[${n.urgency}] ${n.ngo.name} — ${n.rawText}`}</title>
               </circle>
             </g>
           );
         })}
       </svg>
 
-      <div className="flex flex-wrap items-center gap-3 border-t border-white/5 px-5 py-3 text-xs">
+      <div className="flex flex-wrap items-center gap-3 border-t border-black/5 px-5 py-3 text-xs">
         <span className="label-caps">Urgency</span>
         {(["LOW", "MEDIUM", "HIGH", "CRITICAL"] as Urgency[]).map(u => (
           <span key={u} className="flex items-center gap-1.5">
             <span
-              className="inline-block rounded-full ring-1 ring-white/20"
+              className="inline-block rounded-full ring-1 ring-black/20"
               style={{
                 width: URGENCY_RADIUS[u],
                 height: URGENCY_RADIUS[u],

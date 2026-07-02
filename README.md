@@ -2,145 +2,148 @@ Deployment Link: https://federated-need-match.vercel.app/
 
 # Federated Community Need & Volunteer Matching Platform
 
-Hackathon MVP — a multi-tenant platform where multiple NGOs ingest unstructured
-field reports, visualize urgency hotspots, and share volunteers across
-organizations when their own pool can't cover a need.
+A multi-tenant relief coordination platform where NGOs ingest unstructured
+field reports, run shared incident timelines, visualize urgency hotspots, and
+share volunteers across organizations when their own pool can't cover a need.
+Installable as a PWA, with real logins, browser push notifications, photo
+evidence, offline report queueing, and a live analytics pulse.
 
 ## Stack
 
-- **Next.js 14** (App Router) + Tailwind CSS
-- **Node.js / TypeScript** service layer
+- **Next.js 14** (App Router, server components) + Tailwind CSS
 - **PostgreSQL + Prisma ORM**
-- **Google Gemini API** (for LLM-based field report parsing and OCR refinement)
-- Interactive Google Maps embed & OpenStreetMap/Nominatim Geocoding
-- Simple lat/lng geometry + an SVG federated hotspot map
+- **Auth:** signed JWT session cookies (`jose`) + `bcryptjs` password hashing
+- **Web Push** (VAPID) + service worker → real browser notifications
+- **PWA:** web app manifest, offline fallback, installable to home screen
+- **Google Gemini API** for LLM field-report parsing & OCR refinement
+  (keyword-based fallback when no API key is set)
+- **tesseract.js** client-side OCR for photographed notices/handwriting
+- Google Maps embeds + OpenStreetMap/Nominatim geocoding; SVG hotspot map fallback
+
+## Roles & access
+
+| Role | Signs in at | Can |
+| --- | --- | --- |
+| **Volunteer** | `/login` (Volunteer tab) | file incidents & reports as their NGO, toggle availability, **accept / decline / complete assignments**, upload a profile picture, get push notifications |
+| **NGO admin** | `/login` (NGO tab) | everything a volunteer can, plus add/remove volunteers, set & **reset** their passwords, remove fulfilled needs, set the NGO's profile picture |
+| **Super-admin** | `/admin/login` (platform password) | add/remove NGOs (with generated admin credentials), remove incidents |
+
+Every page and API is behind login (middleware + per-route guards). Server
+routes derive the acting NGO/user from the session — request bodies can't
+impersonate another NGO. New members get a default password and must change
+it at first login.
 
 ## Setup
 
 ```bash
 npm install
-cp .env.example .env       # edit DATABASE_URL & add your GEMINI_API_KEY
+cp .env.example .env   # DATABASE_URL, GEMINI_API_KEY, AUTH_SESSION_SECRET,
+                       # ADMIN_PASSWORD/ADMIN_SESSION_SECRET, VAPID keys, maps key
 npm run db:generate
 npm run db:push
-npm run db:seed
+npm run db:seed        # prints all demo login credentials
 npm run dev
 ```
 
-Open <http://localhost:3000>.
+Open <http://localhost:3000> — you'll be redirected to `/login`.
+All seeded accounts use the password printed by the seed (e.g.
+`admin@helpinghands.org` / `ravi@helpinghands.org`).
 
-## Demo flow (the one that sells the federated story)
+## The demo flow that sells the federation
 
-The seed creates two NGOs with deliberately complementary skills:
+The seed creates NGOs with deliberately complementary skills
+(Helping Hands has **no medics**; Care First does).
 
-| NGO            | Volunteers                              |
-| -------------- | --------------------------------------- |
-| Helping Hands  | Logistics + General only — **no medics** |
-| Care First     | Medical + First Aid                      |
+1. Log in as the **Helping Hands admin** → its dashboard.
+2. **Ingest** the sample report *"Emergency: 3 people injured on MG Road…"*
+   — the parser extracts `MEDICAL / CRITICAL / Medical, First Aid`. Optionally
+   attach a **field photo** with the report.
+3. **Find Match** → amber warning: no suitable volunteer in your own NGO.
+   The matcher refuses to leak across NGO boundaries.
+4. Click **Share**, then **Find Match** again → cross-NGO match with a medic
+   from Care First; the volunteer gets a **push notification**.
+5. Log in as that volunteer → **My Assignments** shows the proposal with
+   **Accept / Decline**. Declining reopens the need and excludes them from the
+   next ranking; accepting marks them BUSY and deployed; completing resolves it.
+   The NGO admins are notified of every response.
+6. Visit **/network** → hotspot map of every shared need, filters + search,
+   and the **Network Analytics** pulse (filed vs matched trend, median
+   time-to-match, acceptance rate, per-NGO contribution).
 
-### Step 1 — Land on `/`
-Pick **Helping Hands**.
+## Feature highlights
 
-### Step 2 — Ingest a critical medical report
-In the "Ingest field report" box, click the sample
-*"Emergency: 3 people injured on MG Road…"* and hit **Ingest** (leave "Share"
-unchecked).
+- **Incidents** — long-running, multi-NGO situations with an append-only
+  timeline (info/hazard/need/resource/status updates), linked needs, live map.
+- **Photos** — field photos (with optional caption) on timeline updates and
+  needs; profile pictures for NGOs and members. Stored compressed in Postgres,
+  served via cacheable endpoints so polled boards stay light.
+- **PWA** — install from the browser (or the 📲 button); offline fallback page;
+  **reports written offline are queued in IndexedDB and auto-sent on reconnect**.
+- **Push** — new-incident broadcasts, match recommendations (skips BUSY
+  volunteers), assignment responses; prunes dead subscriptions.
+- **Boards** — status/category/urgency filters, text search, and pagination on
+  the incident board and the federated network board.
 
-The Gemini-powered parser extracts `MEDICAL` / `CRITICAL` / required skills =
-`Medical, First Aid`. The new card appears in the needs list. (Falls back to a keyword-based mock if no API key is provided).
+## API surface (all auth-guarded)
 
-### Step 3 — Try to match it
-Click **Find match** on the new need. You get an amber warning:
+| Method | Path | Purpose |
+| --- | --- | --- |
+| POST | `/api/auth/login` / `logout` / `change-password` | session lifecycle |
+| GET | `/api/ngos` · PATCH/DELETE `/api/ngos/:id` | list; logo update (own admin); removal (super-admin) |
+| POST | `/api/users` · PATCH/DELETE `/api/users/:id` | member management (NGO admin; self-PATCH for status/avatar) |
+| POST | `/api/users/:id/reset-password` | issue a fresh default password |
+| POST | `/api/ingest` | parse unstructured text (+photo) → ReportedNeed |
+| GET/PATCH/DELETE | `/api/needs/:id` | detail; share/status; removal (owning NGO) |
+| POST | `/api/needs/:id/match` | rank + persist a match, notify volunteers |
+| PATCH | `/api/matches/:id` | volunteer accept / decline / complete |
+| GET/POST | `/api/incidents` · `/api/incidents/:id/updates` | board + timelines (identity from session) |
+| PATCH/DELETE | `/api/incidents/:id` | status change; removal (super-admin) |
+| GET | `/api/needs/:id/photo` · `/api/updates/:id/photo` | cached photo bytes |
+| POST | `/api/push/subscribe` / `unsubscribe` | Web Push subscriptions |
+| GET/POST | `/api/notifications` (+`/read`) | in-app notification feed |
 
-> No suitable volunteer in own NGO. Try toggling 'Share' to widen the search.
+## Matching algorithm — transparent weighted sum
 
-That's the matcher correctly refusing to leak across NGO boundaries.
+Tuneable in [`src/services/matching/matcher.ts`](src/services/matching/matcher.ts):
 
-### Step 4 — Click **Share**
-The need now shows a "shared" badge.
+| Component | Weight | Notes |
+| --- | ---: | --- |
+| Skill match | 50 | coverage × proficiency (normalized) |
+| Proximity | 30 | linear decay within volunteer's `maxRadiusKm`; out-of-radius candidates are still ranked (lower), never hidden |
+| Same-NGO bonus | 15 | zero for federated-pool candidates |
+| Urgency boost | 5 | CRITICAL = 1.3× |
 
-### Step 5 — Click **Find match** again
-Now the matcher widens to the federated pool, finds **Dr. Asha** at Care
-First, and shows a green panel:
-
-> ✓ Matched Dr. Asha — score X · 🌐 cross-NGO match
-
-The need's status flips to `MATCHED`.
-
-### Step 6 — Visit `/network`
-The hotspot map renders every shared need across all NGOs, sized and colored
-by urgency. The list below shows each one with its source NGO badge.
-
-## API surface
-
-| Method | Path                          | Purpose                                       |
-| ------ | ----------------------------- | --------------------------------------------- |
-| GET    | `/api/ngos`                   | List NGOs with member/need counts             |
-| POST   | `/api/ingest`                 | Parse unstructured text → ReportedNeed        |
-| GET    | `/api/needs?ngoId=&shared=`   | List needs (per-NGO or federated)             |
-| GET    | `/api/needs/:id`              | Need detail with relations                    |
-| PATCH  | `/api/needs/:id`              | Update `isShared` and/or `status`             |
-| POST   | `/api/needs/:id/match`        | Run matcher and persist a Match               |
-| GET    | `/api/volunteers?ngoId=`      | List volunteers (optionally per-NGO)          |
+Volunteers who **declined** a need are excluded from its future rankings.
+Federation only widens the search when the owning NGO explicitly **shares**
+the need — privacy stays with the org.
 
 ## Project layout
 
 ```
-prisma/
-  schema.prisma                           NGO, User, Skill, ReportedNeed, Match
-  seed.ts                                 demo data with mismatched skill pools
-
+prisma/schema.prisma      NGO, User, Skill, ReportedNeed, Match, Incident,
+                          IncidentUpdate, Notification, PushSubscription
 src/
-  app/
-    page.tsx                              NGO picker (server component)
-    dashboard/[ngoId]/page.tsx            per-NGO dashboard
-    network/page.tsx                      federated network view
-    api/...                               REST handlers (see table above)
-  components/
-    IngestForm.tsx                        client form → POST /api/ingest
-    NeedRow.tsx                           per-need card with match + share
-    VolunteerPanel.tsx                    sidebar volunteer list
-    HotspotMap.tsx                        SVG hotspot map for /network
-  lib/
-    prisma.ts                             singleton client
-    format.ts                             badge color/emoji helpers
+  middleware.ts           login gate for every page
+  lib/                    session/auth guards, push, validation, photo serving
   services/
-    geo/distance.ts                       haversine
-    ingestion/parser.ts                   Gemini LLM JSON parser / keyword fallback
-    matching/matcher.ts                   cross-NGO matcher + scorer
+    ingestion/parser.ts   Gemini JSON parser / keyword fallback
+    matching/matcher.ts   cross-NGO matcher + scorer
+    notifications/        fan-out helpers (in-app + push)
+  app/
+    login/ · admin/       volunteer/NGO login · super-admin console
+    dashboard/[ngoId]/    NGO command center (read-only for other NGOs)
+    user/[userId]/        volunteer workspace + My Assignments
+    incidents/ · network/ incident board · federated board + analytics
+    api/...               REST handlers (table above)
+  components/             forms, panels, charts, PWA plumbing
+public/sw.js              push + offline service worker
+scripts/gen-icons.mjs     regenerates PWA icons from the SVG sources
 ```
 
-## Matching algorithm — weighted sum
+## Post-hackathon ideas
 
-Tuneable in [`src/services/matching/matcher.ts`](src/services/matching/matcher.ts):
-
-| Component      | Weight | Notes                                             |
-| -------------- | -----: | ------------------------------------------------- |
-| Skill match    |    50  | coverage × proficiency (normalized)               |
-| Proximity      |    30  | linear decay within volunteer's `maxRadiusKm`     |
-| Same-NGO bonus |    15  | zero when falling back to the federated pool      |
-| Urgency boost  |     5  | multiplied by urgency level (CRITICAL = 1.3×)     |
-
-Out-of-radius candidates are hard-rejected (score = 0).
-
-## Cross-NGO fallback in plain English
-
-```
-Need is OPEN
-  ├── Search volunteers WHERE ngoId = need.ngoId AND has-required-skill
-  │     └── Found candidates? → score them, return best
-  └── No candidates AND need.isShared
-        └── Search WHERE ngoId != need.ngoId AND ngo.sharesPool = true
-              └── Found candidates? → score them, mark match.isCrossNgo = true
-```
-
-Federation only widens the search when the *reporting NGO has explicitly
-opted-in* by sharing the need — so privacy/control stays with the owning org.
-
-## Next steps (post-hackathon)
-
-- Real auth — NextAuth or Clerk; inject `ngoId` from the session instead of
-  trusting URL params.
-- Upgrade the federated `HotspotMap` to react-leaflet with real tiles (currently SVG).
-- Swap lat/lng columns for PostGIS `geography(Point)` once `ST_DWithin`
-  queries matter at scale.
-- Volunteer-facing app: accept/decline match notifications.
+- Login rate limiting / lockout.
+- Move photo bytes to blob storage (Vercel Blob/S3) — the serving endpoints
+  already isolate storage, so it's a drop-in swap.
+- Email notifications as a push fallback.
+- PostGIS `geography(Point)` + `ST_DWithin` once geo queries matter at scale.

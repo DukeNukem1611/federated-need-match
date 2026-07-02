@@ -20,7 +20,11 @@ export function LiveRefresh({
 }) {
   const router = useRouter();
   const [visible, setVisible] = useState(true);
-  const [lastTick, setLastTick] = useState<number>(Date.now());
+  // Start null so the server render and the first client render produce
+  // identical markup. The real timestamp is set after mount in the effects
+  // below — initializing with Date.now() here would differ between server
+  // and client and trip a hydration mismatch on the title attribute.
+  const [lastTick, setLastTick] = useState<number | null>(null);
 
   // Track tab visibility so we don't spin while the user is elsewhere.
   useEffect(() => {
@@ -51,13 +55,13 @@ export function LiveRefresh({
 
   return (
     <span
-      className="flex items-center gap-2 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-emerald-200"
-      title={`Auto-refreshing every ${seconds}s · last fetch ${new Date(lastTick).toLocaleTimeString()}`}
+      className="flex items-center gap-2 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-emerald-700"
+      title={`Auto-refreshing every ${seconds}s${lastTick ? ` · last fetch ${new Date(lastTick).toLocaleTimeString()}` : ""}`}
     >
       <span
-        className={`h-1.5 w-1.5 rounded-full bg-emerald-300 ${visible ? "animate-pulse-dot" : "opacity-40"}`}
+        className={`h-1.5 w-1.5 rounded-full bg-emerald-500 ${visible ? "animate-pulse-dot" : "opacity-40"}`}
       />
-      {label} · {seconds}s
+      {label}
     </span>
   );
 }

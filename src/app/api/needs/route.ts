@@ -3,8 +3,12 @@
 // show all needs that the federation can see.
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireViewer } from "@/lib/api-auth";
 
 export async function GET(req: NextRequest) {
+  const auth = await requireViewer(req);
+  if ("error" in auth) return auth.error;
+
   const { searchParams } = new URL(req.url);
   const ngoId  = searchParams.get("ngoId") ?? undefined;
   const shared = searchParams.get("shared") === "true";

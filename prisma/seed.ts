@@ -15,11 +15,19 @@ import {
   NeedCategory,
   Urgency,
 } from "@prisma/client";
+import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
+// Every seeded account shares this password so you can log in immediately.
+// mustChangePassword stays false for seeded users (no forced first-login change).
+const DEFAULT_PASSWORD = "relief123";
+const DEFAULT_HASH = bcrypt.hashSync(DEFAULT_PASSWORD, 10);
+
 async function main() {
   // Wipe in dependency order so reseeding is idempotent during the hackathon.
+  // Notifications reference both User and Incident, so they must go first.
+  await prisma.notification.deleteMany();
   await prisma.match.deleteMany();
   await prisma.needSkill.deleteMany();
   await prisma.incidentUpdate.deleteMany();
@@ -177,6 +185,9 @@ async function main() {
     },
   });
 
+  // Give every seeded user the shared default password so they can sign in.
+  await prisma.user.updateMany({ data: { passwordHash: DEFAULT_HASH } });
+
   // ── Incidents (the shared knowledge base) ──
   // Story: ReliefNet first reported the MG Road flood. Helping Hands then
   // posted a hazard advisory about the blocked route. Care First annotated
@@ -302,6 +313,11 @@ async function main() {
   console.log("  ReliefNet:    ", reliefNet.id);
   console.log("  Flood incident:", flood.id);
   console.log("  Fire incident: ", fire.id);
+  console.log("");
+  console.log(`  All accounts share the password: ${DEFAULT_PASSWORD}`);
+  console.log("  NGO admins (NGO tab):  admin@helpinghands.org · admin@carefirst.org · admin@reliefnet.org");
+  console.log("  Volunteers (Volunteer tab): ravi@helpinghands.org · neha@helpinghands.org · asha@carefirst.org · vikram@carefirst.org · kiran@reliefnet.org · meera@reliefnet.org");
+  console.log("  Super-admin: /admin/login with ADMIN_PASSWORD from .env");
 }
 
 main()

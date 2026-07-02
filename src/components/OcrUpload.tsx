@@ -72,7 +72,7 @@ export function OcrUpload({
   }
 
   return (
-    <div className="rounded-lg border border-dashed border-white/10 bg-surface-container-low/50 p-4">
+    <div className="rounded-lg border border-dashed border-black/10 bg-surface-container-low/50 p-4">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary-container/10 text-primary-container">
@@ -107,7 +107,7 @@ export function OcrUpload({
             <span className="label-caps text-primary-container">{status}</span>
             <span className="mono-data text-primary-container">{progress}%</span>
           </div>
-          <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-white/5">
+          <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-black/5">
             <div
               className="h-full bg-primary-container shadow-glow-cyan transition-all"
               style={{ width: `${progress}%` }}
@@ -117,12 +117,12 @@ export function OcrUpload({
       )}
 
       {preview && !busy && (
-        <div className="mt-3 flex items-center gap-3 rounded-md border border-white/5 bg-surface-container/60 p-2">
+        <div className="mt-3 flex items-center gap-3 rounded-md border border-black/5 bg-surface-container/60 p-2">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={preview}
             alt="uploaded"
-            className="h-12 w-12 rounded border border-white/10 object-cover grayscale"
+            className="h-12 w-12 rounded border border-black/10 object-cover grayscale"
           />
           <p className="text-[11px] text-on-surface-variant">
             Text extracted — review and edit before submitting if needed.
@@ -131,7 +131,7 @@ export function OcrUpload({
       )}
 
       {error && (
-        <p className="mt-3 rounded-md border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-[11px] text-amber-200">
+        <p className="mt-3 rounded-md border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-[11px] text-amber-700">
           ⚠ {error}
         </p>
       )}
